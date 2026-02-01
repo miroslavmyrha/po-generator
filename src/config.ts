@@ -64,9 +64,9 @@ export const config: Config = {
 
   crawler: {
     maxDepth: parseInt(process.env.PO_GEN_MAX_DEPTH || '10'),
-    timeout: parseInt(process.env.PO_GEN_TIMEOUT || '5000'),
+    timeout: parseInt(process.env.PO_GEN_TIMEOUT || '30000'),
     waitForSelector: process.env.PO_GEN_WAIT_SELECTOR || frameworkDefaults.waitForSelector,
-    ignorePatterns: (process.env.PO_GEN_IGNORE || '/logout,/api/,.pdf').split(','),
+    ignorePatterns: (process.env.PO_GEN_IGNORE || '/logout,/api/,.pdf,.jpg,.png,.gif,.css,.js').split(','),
   },
 };
 

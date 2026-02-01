@@ -42,12 +42,21 @@ export async function crawlUrls(
   onPageFound?: (pageInfo: PageInfo, page: Page) => Promise<void>
 ): Promise<PageInfo[]> {
   const visited = new Set<string>();
-  const queue: string[] = [config.baseUrl];
+  const queue: { url: string; depth: number }[] = [{ url: config.baseUrl, depth: 0 }];
   const sitemap: PageInfo[] = [];
 
   while (queue.length > 0) {
-    const url = queue.shift()!;
-    const path = new URL(url).pathname;
+    const { url, depth } = queue.shift()!;
+
+    // Zkontroluj max hloubku
+    if (depth > config.crawler.maxDepth) continue;
+
+    let path: string;
+    try {
+      path = new URL(url).pathname;
+    } catch {
+      continue; // Nevalidní URL
+    }
 
     // Přeskoč již navštívené
     if (visited.has(path)) continue;
@@ -104,9 +113,13 @@ export async function crawlUrls(
 
       // Přidej nové odkazy do queue
       for (const link of [...new Set(links)]) {
-        const linkPath = new URL(link).pathname;
-        if (!visited.has(linkPath)) {
-          queue.push(link);
+        try {
+          const linkPath = new URL(link).pathname;
+          if (!visited.has(linkPath)) {
+            queue.push({ url: link, depth: depth + 1 });
+          }
+        } catch {
+          // Nevalidní URL - přeskoč
         }
       }
     } catch (error) {
