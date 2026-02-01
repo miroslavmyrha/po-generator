@@ -11,8 +11,9 @@ import {
   findPagesToReview,
   getPageObjectPaths,
 } from './data-loader.js';
+import { createConfig } from '../config.js';
 import { AppError } from '../types.js';
-import type { Decisions } from '../types.js';
+import type { Decisions, Config } from '../types.js';
 
 /**
  * Tests for data-loader module
@@ -25,22 +26,18 @@ import type { Decisions } from '../types.js';
 
 describe('data-loader', () => {
   let tempDir: string;
-  const originalEnv = process.env;
+  let testConfig: Config;
 
   beforeEach(() => {
     vi.resetModules();
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'po-gen-test-'));
-    process.env = {
-      ...originalEnv,
-      PO_GEN_OUTPUT_DIR: tempDir,
-      PO_GEN_BASE_URL: 'http://localhost:3000',
-      PO_GEN_AI_KEY: 'test-key',
-    };
+    testConfig = createConfig({
+      output: { dir: tempDir },
+    });
   });
 
   afterEach(() => {
     fs.rmSync(tempDir, { recursive: true, force: true });
-    process.env = originalEnv;
   });
 
   describe('loadJsonFile', () => {
@@ -174,21 +171,47 @@ describe('data-loader', () => {
   });
 
   describe('saveDecisions and loadDecisions integration', () => {
-    it('saves and loads decisions correctly', async () => {
+    it('saves and loads decisions correctly', () => {
       const decisions: Decisions = {
         '/test': { decision: 'page_object', reason: 'Test page', elementCount: 5 },
       };
-
-      // Need to reimport to get fresh config with new env
-      const { saveDecisions: save, loadDecisions: load } = await import('./data-loader.js');
 
       // Create decisions.json file
       const decisionsPath = path.join(tempDir, 'decisions.json');
       fs.writeFileSync(decisionsPath, JSON.stringify(decisions, null, 2));
 
-      const loaded = load();
+      const loaded = loadDecisions(testConfig);
 
       expect(loaded).toEqual(decisions);
+    });
+
+    it('saves decisions to correct location', () => {
+      const decisions: Decisions = {
+        '/test': { decision: 'page_object', reason: 'Test page', elementCount: 5 },
+      };
+
+      saveDecisions(testConfig, decisions);
+
+      const decisionsPath = path.join(tempDir, 'decisions.json');
+      expect(fs.existsSync(decisionsPath)).toBe(true);
+
+      const loaded = JSON.parse(fs.readFileSync(decisionsPath, 'utf-8'));
+      expect(loaded).toEqual(decisions);
+    });
+  });
+
+  describe('loadSitemap', () => {
+    it('loads sitemap from config output directory', () => {
+      const sitemap = [
+        { url: 'http://localhost/page1', path: '/page1', title: 'Page 1', hasForm: false, hasTable: false, hasCards: false, interactiveCount: 5, crawledAt: '2024-01-01' },
+      ];
+
+      const sitemapPath = path.join(tempDir, 'sitemap.json');
+      fs.writeFileSync(sitemapPath, JSON.stringify(sitemap));
+
+      const loaded = loadSitemap(testConfig);
+
+      expect(loaded).toEqual(sitemap);
     });
   });
 });

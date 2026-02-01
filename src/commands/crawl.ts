@@ -1,36 +1,39 @@
 import fs from 'fs';
 import path from 'path';
 import ora from 'ora';
-import { config } from '../config.js';
 import { FILES, SUCCESS, ERRORS } from '../constants.js';
 import { log } from '../lib/logger.js';
 import { createBrowser, login, crawlUrls } from '../lib/crawler.js';
 import { truncate } from '../lib/utils.js';
 import { AppError } from '../types.js';
-import type { CrawlOptions, PageInfo } from '../types.js';
+import type { Config, CrawlOptions, PageInfo } from '../types.js';
 
-export async function crawlCommand(options: CrawlOptions): Promise<void> {
+export async function crawlCommand(config: Config, options: CrawlOptions): Promise<void> {
   log.info('\n🔍 Starting crawler...\n');
 
   const spinner = ora('Starting browser').start();
   const { browser, page } = await createBrowser(true);
 
   try {
-    await handleLogin(options, spinner);
-    const sitemap = await performCrawl(page, spinner);
-    saveSitemap(sitemap);
+    await handleLogin(config, options, page, spinner);
+    const sitemap = await performCrawl(config, page, spinner);
+    saveSitemap(config, sitemap);
     printSummary(sitemap);
   } finally {
     await browser.close();
   }
 }
 
-async function handleLogin(options: CrawlOptions, spinner: ReturnType<typeof ora>): Promise<void> {
+async function handleLogin(
+  config: Config,
+  options: CrawlOptions,
+  page: import('playwright').Page,
+  spinner: ReturnType<typeof ora>
+): Promise<void> {
   if (!config.auth.enabled || options.login === false) return;
 
   spinner.text = 'Logging in...';
-  const { page } = await createBrowser(true);
-  const success = await login(page);
+  const success = await login(config, page);
 
   if (!success) {
     spinner.fail(ERRORS.LOGIN_FAILED);
@@ -41,13 +44,14 @@ async function handleLogin(options: CrawlOptions, spinner: ReturnType<typeof ora
 }
 
 async function performCrawl(
+  config: Config,
   page: import('playwright').Page,
   spinner: ReturnType<typeof ora>
 ): Promise<PageInfo[]> {
   spinner.start('Crawling application...');
   let pageCount = 0;
 
-  const sitemap = await crawlUrls(page, async (pageInfo) => {
+  const sitemap = await crawlUrls(config, page, async (pageInfo) => {
     pageCount++;
     spinner.text = `Crawling: ${pageInfo.path} (${pageCount} pages)`;
   });
@@ -56,7 +60,7 @@ async function performCrawl(
   return sitemap;
 }
 
-function saveSitemap(sitemap: PageInfo[]): void {
+function saveSitemap(config: Config, sitemap: PageInfo[]): void {
   const outputDir = config.output.dir;
   fs.mkdirSync(outputDir, { recursive: true });
 

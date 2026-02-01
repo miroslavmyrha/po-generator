@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createConfig } from '../config.js';
 
 /**
  * Tests for crawler helper functions
@@ -71,19 +72,11 @@ describe('parseUrlPath', () => {
 });
 
 describe('shouldIgnorePath', () => {
-  let shouldIgnorePath: (path: string) => boolean;
+  let shouldIgnorePath: typeof import('./crawler.js').shouldIgnorePath;
   const originalEnv = process.env;
 
   beforeEach(async () => {
     vi.resetModules();
-    // Set up test ignore patterns
-    process.env = {
-      ...originalEnv,
-      PO_GEN_IGNORE: '/logout,/api/,/admin,.pdf,.jpg',
-      PO_GEN_BASE_URL: 'http://test.com',
-      PO_GEN_AI_KEY: 'test',
-    };
-
     const module = await import('./crawler.js');
     shouldIgnorePath = module.shouldIgnorePath;
   });
@@ -92,42 +85,49 @@ describe('shouldIgnorePath', () => {
     process.env = originalEnv;
   });
 
+  // Create a test config with specific ignore patterns
+  const testConfig = createConfig({
+    crawler: {
+      ignorePatterns: ['/logout', '/api/', '/admin', '.pdf', '.jpg'],
+    },
+  });
+
   it('ignores paths containing /logout', () => {
-    expect(shouldIgnorePath('/logout')).toBe(true);
-    expect(shouldIgnorePath('/user/logout')).toBe(true);
+    expect(shouldIgnorePath(testConfig, '/logout')).toBe(true);
+    expect(shouldIgnorePath(testConfig, '/user/logout')).toBe(true);
   });
 
   it('ignores paths containing /api/', () => {
-    expect(shouldIgnorePath('/api/users')).toBe(true);
-    expect(shouldIgnorePath('/v1/api/data')).toBe(true);
+    expect(shouldIgnorePath(testConfig, '/api/users')).toBe(true);
+    expect(shouldIgnorePath(testConfig, '/v1/api/data')).toBe(true);
   });
 
   it('ignores paths with .pdf extension', () => {
-    expect(shouldIgnorePath('/documents/report.pdf')).toBe(true);
+    expect(shouldIgnorePath(testConfig, '/documents/report.pdf')).toBe(true);
   });
 
   it('ignores paths with .jpg extension', () => {
-    expect(shouldIgnorePath('/images/photo.jpg')).toBe(true);
+    expect(shouldIgnorePath(testConfig, '/images/photo.jpg')).toBe(true);
   });
 
   it('does not ignore valid page paths', () => {
-    expect(shouldIgnorePath('/dashboard')).toBe(false);
-    expect(shouldIgnorePath('/users')).toBe(false);
-    expect(shouldIgnorePath('/settings/profile')).toBe(false);
+    expect(shouldIgnorePath(testConfig, '/dashboard')).toBe(false);
+    expect(shouldIgnorePath(testConfig, '/users')).toBe(false);
+    expect(shouldIgnorePath(testConfig, '/settings/profile')).toBe(false);
   });
 
   it('does not ignore paths that partially match pattern', () => {
     // /api without trailing slash should not match /api/
-    expect(shouldIgnorePath('/apikey')).toBe(false);
+    expect(shouldIgnorePath(testConfig, '/apikey')).toBe(false);
   });
 
   it('handles root path', () => {
-    expect(shouldIgnorePath('/')).toBe(false);
+    expect(shouldIgnorePath(testConfig, '/')).toBe(false);
   });
 
   it('is case-sensitive', () => {
     // Assuming patterns are lowercase
-    expect(shouldIgnorePath('/LOGOUT')).toBe(false);
-    expect(shouldIgnorePath('/API/users')).toBe(false);
+    expect(shouldIgnorePath(testConfig, '/LOGOUT')).toBe(false);
+    expect(shouldIgnorePath(testConfig, '/API/users')).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
 #!/usr/bin/env -S node --import tsx
 
 import { Command } from 'commander';
-import { config, validateConfig } from '../src/config.js';
+import { createConfig, validateConfig } from '../src/config.js';
 import { crawlCommand } from '../src/commands/crawl.js';
 import { scanCommand } from '../src/commands/scan.js';
 import { generateCommand } from '../src/commands/generate.js';
@@ -10,6 +10,10 @@ import { runCommand } from '../src/commands/run.js';
 import { initCommand } from '../src/commands/init.js';
 import { log } from '../src/lib/logger.js';
 import { AppError } from '../src/types.js';
+import type { Config } from '../src/types.js';
+
+// Create config once at startup
+const config = createConfig();
 
 const program = new Command();
 
@@ -33,8 +37,8 @@ program
   .option('-d, --depth <number>', 'Max crawl depth', '10')
   .action(
     wrapCommand(async (options) => {
-      requireConfig(options.url);
-      await crawlCommand(options);
+      requireConfig(config, options.url);
+      await crawlCommand(config, options);
     })
   );
 
@@ -47,8 +51,8 @@ program
   .option('--retry <number>', 'Number of retries on AI error', '3')
   .action(
     wrapCommand(async (options) => {
-      requireConfig();
-      await scanCommand(options);
+      requireConfig(config);
+      await scanCommand(config, options);
     })
   );
 
@@ -58,13 +62,13 @@ program
   .description('Generate Page Objects from scan results')
   .option('-o, --output <dir>', 'Output directory')
   .option('--typescript', 'Generate TypeScript files')
-  .action(wrapCommand(generateCommand));
+  .action(wrapCommand((options) => generateCommand(config, options)));
 
 // Review - interactive review of AI decisions
 program
   .command('review')
   .description('Interactive review of AI decisions')
-  .action(wrapCommand(reviewCommand));
+  .action(wrapCommand(() => reviewCommand(config)));
 
 // Run - execute full workflow
 program
@@ -74,8 +78,8 @@ program
   .option('--skip-review', 'Skip interactive review')
   .action(
     wrapCommand(async (options) => {
-      requireConfig();
-      await runCommand(options);
+      requireConfig(config);
+      await runCommand(config, options);
     })
   );
 
@@ -104,8 +108,8 @@ function wrapCommand<T>(handler: (options: T) => Promise<void>): (options: T) =>
 /**
  * Validate configuration and exit if invalid
  */
-function requireConfig(skipIfUrl = false): void {
-  const errors = validateConfig();
+function requireConfig(cfg: Config, skipIfUrl = false): void {
+  const errors = validateConfig(cfg);
 
   if (errors.length && !skipIfUrl) {
     log.error('Configuration errors:');

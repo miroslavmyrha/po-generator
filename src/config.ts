@@ -2,8 +2,19 @@ import 'dotenv/config';
 import type { Config, FrameworkDefaults } from './types.js';
 
 /**
+ * Deep partial type for nested config overrides
+ * Arrays are not recursively made partial - they remain as-is
+ */
+type DeepPartial<T> = {
+  [P in keyof T]?: T[P] extends (infer U)[]
+    ? U[]
+    : T[P] extends object
+      ? DeepPartial<T[P]>
+      : T[P];
+};
+
+/**
  * Parse integer from environment variable with validation
- * Returns default value if parsing fails or value is out of range
  */
 function parseIntEnv(value: string | undefined, defaultValue: number, min: number, max: number): number {
   if (!value) return defaultValue;
@@ -42,46 +53,52 @@ export const FRAMEWORK_DEFAULTS: Record<string, FrameworkDefaults> = {
   },
 };
 
-const framework = process.env.PO_GEN_FRAMEWORK || 'generic';
-const frameworkDefaults = FRAMEWORK_DEFAULTS[framework] || FRAMEWORK_DEFAULTS.generic;
+/**
+ * Create configuration from environment variables with optional overrides
+ * This is the primary way to get a Config instance
+ */
+export function createConfig(overrides: DeepPartial<Config> = {}): Config {
+  const framework = (overrides.framework ?? process.env.PO_GEN_FRAMEWORK ?? 'generic') as string;
+  const frameworkDefaults = FRAMEWORK_DEFAULTS[framework] ?? FRAMEWORK_DEFAULTS.generic;
 
-export const config: Config = {
-  framework,
+  return {
+    framework,
 
-  baseUrl: process.env.PO_GEN_BASE_URL || 'http://localhost:5173',
+    baseUrl: overrides.baseUrl ?? process.env.PO_GEN_BASE_URL ?? 'http://localhost:5173',
 
-  auth: {
-    enabled: process.env.PO_GEN_AUTH_ENABLED === 'true',
-    loginUrl: process.env.PO_GEN_LOGIN_URL || '/login',
-    credentials: {
-      username: process.env.PO_GEN_USERNAME,
-      password: process.env.PO_GEN_PASSWORD,
+    auth: {
+      enabled: overrides.auth?.enabled ?? process.env.PO_GEN_AUTH_ENABLED === 'true',
+      loginUrl: overrides.auth?.loginUrl ?? process.env.PO_GEN_LOGIN_URL ?? '/login',
+      credentials: {
+        username: overrides.auth?.credentials?.username ?? process.env.PO_GEN_USERNAME,
+        password: overrides.auth?.credentials?.password ?? process.env.PO_GEN_PASSWORD,
+      },
+      fields: {
+        username: overrides.auth?.fields?.username ?? process.env.PO_GEN_FIELD_USERNAME ?? frameworkDefaults.loginFields.username,
+        password: overrides.auth?.fields?.password ?? process.env.PO_GEN_FIELD_PASSWORD ?? frameworkDefaults.loginFields.password,
+        submit: overrides.auth?.fields?.submit ?? process.env.PO_GEN_FIELD_SUBMIT ?? frameworkDefaults.loginFields.submit,
+      },
+      successUrl: overrides.auth?.successUrl ?? process.env.PO_GEN_SUCCESS_URL ?? '/dashboard',
     },
-    fields: {
-      username: process.env.PO_GEN_FIELD_USERNAME || frameworkDefaults.loginFields.username,
-      password: process.env.PO_GEN_FIELD_PASSWORD || frameworkDefaults.loginFields.password,
-      submit: process.env.PO_GEN_FIELD_SUBMIT || frameworkDefaults.loginFields.submit,
+
+    ai: {
+      baseUrl: overrides.ai?.baseUrl ?? process.env.PO_GEN_AI_URL ?? 'http://localhost:3000/api/v1',
+      apiKey: overrides.ai?.apiKey ?? process.env.PO_GEN_AI_KEY,
+      model: overrides.ai?.model ?? process.env.PO_GEN_AI_MODEL ?? 'llama3',
     },
-    successUrl: process.env.PO_GEN_SUCCESS_URL || '/dashboard',
-  },
 
-  ai: {
-    baseUrl: process.env.PO_GEN_AI_URL || 'http://localhost:3000/api/v1',
-    apiKey: process.env.PO_GEN_AI_KEY,
-    model: process.env.PO_GEN_AI_MODEL || 'llama3',
-  },
+    output: {
+      dir: overrides.output?.dir ?? process.env.PO_GEN_OUTPUT_DIR ?? './output',
+    },
 
-  output: {
-    dir: process.env.PO_GEN_OUTPUT_DIR || './output',
-  },
-
-  crawler: {
-    maxDepth: parseIntEnv(process.env.PO_GEN_MAX_DEPTH, 10, 1, 100),
-    timeout: parseIntEnv(process.env.PO_GEN_TIMEOUT, 30000, 1000, 120000),
-    waitForSelector: process.env.PO_GEN_WAIT_SELECTOR || frameworkDefaults.waitForSelector,
-    ignorePatterns: (process.env.PO_GEN_IGNORE || '/logout,/api/,.pdf,.jpg,.png,.gif,.css,.js').split(','),
-  },
-};
+    crawler: {
+      maxDepth: overrides.crawler?.maxDepth ?? parseIntEnv(process.env.PO_GEN_MAX_DEPTH, 10, 1, 100),
+      timeout: overrides.crawler?.timeout ?? parseIntEnv(process.env.PO_GEN_TIMEOUT, 30000, 1000, 120000),
+      waitForSelector: overrides.crawler?.waitForSelector ?? process.env.PO_GEN_WAIT_SELECTOR ?? frameworkDefaults.waitForSelector,
+      ignorePatterns: overrides.crawler?.ignorePatterns ?? (process.env.PO_GEN_IGNORE || '/logout,/api/,.pdf,.jpg,.png,.gif,.css,.js').split(',').filter(Boolean),
+    },
+  };
+}
 
 /**
  * Validate URL format and return warnings for insecure URLs
@@ -89,7 +106,6 @@ export const config: Config = {
 function validateUrl(url: string, name: string): { error?: string; warning?: string } {
   try {
     const parsed = new URL(url);
-    // Warn if using HTTP with credentials or external AI service
     if (parsed.protocol === 'http:' && !parsed.hostname.match(/^(localhost|127\.0\.0\.1)$/)) {
       return { warning: `${name} uses HTTP - consider HTTPS for security` };
     }
@@ -99,33 +115,35 @@ function validateUrl(url: string, name: string): { error?: string; warning?: str
   }
 }
 
-export function validateConfig(): string[] {
+/**
+ * Validate configuration and return errors/warnings
+ */
+export function validateConfig(cfg: Config): string[] {
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  if (!config.baseUrl) {
+  if (!cfg.baseUrl) {
     errors.push('PO_GEN_BASE_URL is required');
   } else {
-    const baseUrlCheck = validateUrl(config.baseUrl, 'PO_GEN_BASE_URL');
+    const baseUrlCheck = validateUrl(cfg.baseUrl, 'PO_GEN_BASE_URL');
     if (baseUrlCheck.error) errors.push(baseUrlCheck.error);
     if (baseUrlCheck.warning) warnings.push(baseUrlCheck.warning);
   }
 
-  if (!config.ai.apiKey) {
+  if (!cfg.ai.apiKey) {
     errors.push('PO_GEN_AI_KEY is required');
   }
 
-  if (config.ai.baseUrl) {
-    const aiUrlCheck = validateUrl(config.ai.baseUrl, 'PO_GEN_AI_URL');
+  if (cfg.ai.baseUrl) {
+    const aiUrlCheck = validateUrl(cfg.ai.baseUrl, 'PO_GEN_AI_URL');
     if (aiUrlCheck.error) errors.push(aiUrlCheck.error);
     if (aiUrlCheck.warning) warnings.push(aiUrlCheck.warning);
   }
 
-  if (config.auth.enabled) {
-    if (!config.auth.credentials.username) errors.push('PO_GEN_USERNAME is required when auth is enabled');
-    if (!config.auth.credentials.password) errors.push('PO_GEN_PASSWORD is required when auth is enabled');
+  if (cfg.auth.enabled) {
+    if (!cfg.auth.credentials.username) errors.push('PO_GEN_USERNAME is required when auth is enabled');
+    if (!cfg.auth.credentials.password) errors.push('PO_GEN_PASSWORD is required when auth is enabled');
   }
 
-  // Return warnings as part of errors array with [WARN] prefix
   return [...errors, ...warnings.map((w) => `[WARN] ${w}`)];
 }

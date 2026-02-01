@@ -1,11 +1,10 @@
 import path from 'path';
 import ora from 'ora';
-import { config } from '../config.js';
 import { FILES, ERRORS, SUCCESS } from '../constants.js';
 import { log } from '../lib/logger.js';
 import { generatePageObject, savePageObject, generateIndexFile } from '../lib/generator.js';
 import { loadDecisions, getPageObjectPaths, loadScanResult } from '../lib/data-loader.js';
-import type { GenerateOptions, Decisions, ScanResult } from '../types.js';
+import type { Config, GenerateOptions, Decisions, ScanResult } from '../types.js';
 
 interface GeneratedFile {
   className: string;
@@ -17,20 +16,21 @@ interface GeneratedFile {
  * Generation context - groups related parameters for cleaner function signatures
  */
 interface GenerateContext {
+  config: Config;
   decisions: Decisions;
   outputDir: string;
   ext: string;
   spinner: ReturnType<typeof ora>;
 }
 
-export async function generateCommand(options: GenerateOptions): Promise<void> {
+export async function generateCommand(config: Config, options: GenerateOptions): Promise<void> {
   log.info('\n📝 Generating Page Objects...\n');
 
   const outputDir = options.output || path.join(config.output.dir, FILES.PAGES_DIR);
   const typescript = options.typescript || false;
   const ext = typescript ? 'ts' : 'js';
 
-  const decisions = loadDecisions();
+  const decisions = loadDecisions(config);
   const pagesToGenerate = getPageObjectPaths(decisions);
 
   if (pagesToGenerate.length === 0) {
@@ -41,7 +41,7 @@ export async function generateCommand(options: GenerateOptions): Promise<void> {
   log.dim(`Generating ${pagesToGenerate.length} Page Objects...\n`);
 
   const spinner = ora('Generating...').start();
-  const context: GenerateContext = { decisions, outputDir, ext, spinner };
+  const context: GenerateContext = { config, decisions, outputDir, ext, spinner };
 
   const generated = await generateAllPageObjects(context, pagesToGenerate);
 
@@ -72,9 +72,9 @@ async function generateSinglePageObject(
   context: GenerateContext,
   pagePath: string
 ): Promise<GeneratedFile | null> {
-  const { decisions, outputDir, ext, spinner } = context;
+  const { config, decisions, outputDir, ext, spinner } = context;
 
-  const scanData = loadScanResult(pagePath);
+  const scanData = loadScanResult(config, pagePath);
 
   if (!scanData) {
     spinner.warn(ERRORS.SCAN_NOT_FOUND(pagePath));

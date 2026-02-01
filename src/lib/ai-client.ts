@@ -1,21 +1,18 @@
 import OpenAI from 'openai';
-import { config } from '../config.js';
 import { ERRORS, LIMITS } from '../constants.js';
 import { log } from './logger.js';
 import { validateScanResult, validateModalAnalysis } from '../schemas.js';
-import type { ScanResult, ModalAnalysis, AnalyzeOptions } from '../types.js';
+import type { Config, ScanResult, ModalAnalysis, AnalyzeOptions } from '../types.js';
 import type { Framework } from '../constants.js';
 
-let client: OpenAI | null = null;
-
-function getClient(): OpenAI {
-  if (!client) {
-    client = new OpenAI({
-      baseURL: config.ai.baseUrl,
-      apiKey: config.ai.apiKey,
-    });
-  }
-  return client;
+/**
+ * Create OpenAI client with config
+ */
+function createClient(config: Config): OpenAI {
+  return new OpenAI({
+    baseURL: config.ai.baseUrl,
+    apiKey: config.ai.apiKey,
+  });
 }
 
 // Framework-specific prompts
@@ -157,6 +154,7 @@ function getScannerPrompt(framework: Framework): string {
  * Analyze HTML content using AI
  */
 export async function analyzeHtml(
+  config: Config,
   html: string,
   url: string,
   options: AnalyzeOptions = {}
@@ -164,10 +162,11 @@ export async function analyzeHtml(
   const { retries = 3, framework = 'generic' } = options;
   const cleanHtml = cleanHtmlContent(html);
   const prompt = getScannerPrompt(framework as Framework);
+  const client = createClient(config);
 
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      const result = await callAI(prompt, url, cleanHtml);
+      const result = await callAI(client, config.ai.model, prompt, url, cleanHtml);
       const validated = validateScanResult(result);
 
       if (validated) {
@@ -193,12 +192,14 @@ export async function analyzeHtml(
  * Analyze modal content using AI
  */
 export async function analyzeModalContent(
+  config: Config,
   html: string,
   triggerName: string,
   options: AnalyzeOptions = {}
 ): Promise<ModalAnalysis | null> {
   const { retries = 3, framework = 'generic' } = options;
   const cleanHtml = html.substring(0, LIMITS.MODAL_HTML_MAX_LENGTH);
+  const client = createClient(config);
 
   const modalSelectors: Record<Framework, string> = {
     vuetify: '.v-dialog, .v-overlay',
@@ -210,7 +211,7 @@ export async function analyzeModalContent(
 
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      const result = await callAISimple(prompt + cleanHtml);
+      const result = await callAISimple(client, config.ai.model, prompt + cleanHtml);
       const validated = validateModalAnalysis(result);
 
       if (validated) {
@@ -250,9 +251,15 @@ function extractResponseContent(response: OpenAI.Chat.Completions.ChatCompletion
   return choice.message.content;
 }
 
-async function callAI(systemPrompt: string, url: string, html: string): Promise<unknown> {
-  const response = await getClient().chat.completions.create({
-    model: config.ai.model,
+async function callAI(
+  client: OpenAI,
+  model: string,
+  systemPrompt: string,
+  url: string,
+  html: string
+): Promise<unknown> {
+  const response = await client.chat.completions.create({
+    model,
     temperature: 0.1,
     messages: [
       { role: 'system', content: systemPrompt },
@@ -263,9 +270,9 @@ async function callAI(systemPrompt: string, url: string, html: string): Promise<
   return parseJsonResponse(extractResponseContent(response));
 }
 
-async function callAISimple(prompt: string): Promise<unknown> {
-  const response = await getClient().chat.completions.create({
-    model: config.ai.model,
+async function callAISimple(client: OpenAI, model: string, prompt: string): Promise<unknown> {
+  const response = await client.chat.completions.create({
+    model,
     temperature: 0.1,
     messages: [{ role: 'user', content: prompt }],
   });

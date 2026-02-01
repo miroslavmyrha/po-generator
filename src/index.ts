@@ -1,5 +1,5 @@
 // Entry point for programmatic usage
-export { config, validateConfig, FRAMEWORK_DEFAULTS } from './config.js';
+export { createConfig, validateConfig, FRAMEWORK_DEFAULTS } from './config.js';
 export { createBrowser, login, crawlUrls, getPageHtml, findAndClickModals } from './lib/crawler.js';
 export { analyzeHtml, analyzeModalContent, SUPPORTED_FRAMEWORKS } from './lib/ai-client.js';
 export { generatePageObject, savePageObject, generateIndexFile } from './lib/generator.js';

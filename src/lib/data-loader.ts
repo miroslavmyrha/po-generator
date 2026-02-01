@@ -1,9 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import { config } from '../config.js';
 import { FILES, ERRORS } from '../constants.js';
 import { AppError } from '../types.js';
-import type { PageInfo, Decisions, FullScanResult } from '../types.js';
+import type { Config, PageInfo, Decisions, FullScanResult } from '../types.js';
 
 /**
  * Load and validate JSON file with proper error handling
@@ -28,7 +27,7 @@ export function loadJsonFile<T>(filePath: string, errorMessage: string, errorCod
 /**
  * Load decisions from output directory
  */
-export function loadDecisions(): Decisions {
+export function loadDecisions(config: Config): Decisions {
   const decisionsPath = path.join(config.output.dir, FILES.DECISIONS);
   return loadJsonFile<Decisions>(decisionsPath, ERRORS.DECISIONS_NOT_FOUND, 'DECISIONS_NOT_FOUND');
 }
@@ -36,7 +35,7 @@ export function loadDecisions(): Decisions {
 /**
  * Save decisions to output directory
  */
-export function saveDecisions(decisions: Decisions): void {
+export function saveDecisions(config: Config, decisions: Decisions): void {
   const decisionsPath = path.join(config.output.dir, FILES.DECISIONS);
   fs.writeFileSync(decisionsPath, JSON.stringify(decisions, null, 2));
 }
@@ -44,7 +43,7 @@ export function saveDecisions(decisions: Decisions): void {
 /**
  * Load sitemap from output directory
  */
-export function loadSitemap(): PageInfo[] {
+export function loadSitemap(config: Config): PageInfo[] {
   const sitemapPath = path.join(config.output.dir, FILES.SITEMAP);
   return loadJsonFile<PageInfo[]>(sitemapPath, ERRORS.SITEMAP_NOT_FOUND, 'SITEMAP_NOT_FOUND');
 }
@@ -52,7 +51,7 @@ export function loadSitemap(): PageInfo[] {
 /**
  * Load scan result for a specific page
  */
-export function loadScanResult(pagePath: string): FullScanResult | null {
+export function loadScanResult(config: Config, pagePath: string): FullScanResult | null {
   const fileName = pagePath.replace(/\//g, '_').replace(/^_/, '') || 'home';
   const scanFile = path.join(config.output.dir, FILES.SCANNED_DIR, `${fileName}.json`);
 

@@ -4,44 +4,44 @@ import { reviewCommand } from './review.js';
 import { generateCommand } from './generate.js';
 import { SUCCESS, PHASES } from '../constants.js';
 import { log } from '../lib/logger.js';
-import type { RunOptions } from '../types.js';
+import type { Config, RunOptions } from '../types.js';
 
 const SEPARATOR = '─'.repeat(60);
 
-export async function runCommand(options: RunOptions): Promise<void> {
+export async function runCommand(config: Config, options: RunOptions): Promise<void> {
   log.info('\n🚀 Starting complete workflow...\n');
   log.dim(SEPARATOR);
 
   const startTime = Date.now();
 
-  await runCrawlPhase();
-  await runScanPhase(options);
-  await runReviewPhase(options);
-  await runGeneratePhase();
+  await runCrawlPhase(config);
+  await runScanPhase(config, options);
+  await runReviewPhase(config, options);
+  await runGeneratePhase(config);
 
   printWorkflowComplete(startTime);
 }
 
-async function runCrawlPhase(): Promise<void> {
+async function runCrawlPhase(config: Config): Promise<void> {
   log.info(`\n📍 ${PHASES.CRAWLING}\n`);
-  await crawlCommand({ login: true });
+  await crawlCommand(config, { login: true });
 }
 
-async function runScanPhase(options: RunOptions): Promise<void> {
+async function runScanPhase(config: Config, options: RunOptions): Promise<void> {
   log.info(`\n📍 ${PHASES.SCANNING}\n`);
-  await scanCommand({ retry: '3', framework: options.framework });
+  await scanCommand(config, { retry: '3', framework: options.framework });
 }
 
-async function runReviewPhase(options: RunOptions): Promise<void> {
+async function runReviewPhase(config: Config, options: RunOptions): Promise<void> {
   if (options.skipReview) return;
 
   log.info(`\n📍 ${PHASES.REVIEW}\n`);
-  await reviewCommand();
+  await reviewCommand(config);
 }
 
-async function runGeneratePhase(): Promise<void> {
+async function runGeneratePhase(config: Config): Promise<void> {
   log.info(`\n📍 ${PHASES.GENERATING}\n`);
-  await generateCommand({});
+  await generateCommand(config, {});
 }
 
 function printWorkflowComplete(startTime: number): void {

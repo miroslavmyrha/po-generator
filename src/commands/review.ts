@@ -7,12 +7,12 @@ import {
   findPagesToReview,
 } from '../lib/data-loader.js';
 import { createReadlineInterface, createQuestionFn } from '../lib/utils.js';
-import type { Decisions } from '../types.js';
+import type { Config, Decisions } from '../types.js';
 
-export async function reviewCommand(): Promise<void> {
+export async function reviewCommand(config: Config): Promise<void> {
   log.info('\n🔍 Interactive decision review...\n');
 
-  const decisions = loadDecisions();
+  const decisions = loadDecisions(config);
   const toReview = findPagesToReview(decisions);
 
   if (toReview.length === 0) {
@@ -25,7 +25,7 @@ export async function reviewCommand(): Promise<void> {
   const modified = await interactiveReview(toReview, decisions);
 
   if (modified) {
-    saveDecisions(decisions);
+    saveDecisions(config, decisions);
     log.success(SUCCESS.CHANGES_SAVED);
   }
 

@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 import ora, { Ora } from 'ora';
-import { config } from '../config.js';
 import { ERRORS, SUCCESS, FILES, TIMEOUTS } from '../constants.js';
 import { log } from '../lib/logger.js';
 import { createBrowser, login, getPageHtml, findAndClickModals } from '../lib/crawler.js';
@@ -9,35 +8,36 @@ import { analyzeHtml, analyzeModalContent } from '../lib/ai-client.js';
 import { pathToFileName } from '../lib/utils.js';
 import { loadSitemap as loadSitemapFile, countDecisions } from '../lib/data-loader.js';
 import { AppError } from '../types.js';
-import type { ScanOptions, PageInfo, Decisions, FullScanResult, ScanResult, ModalAnalysis } from '../types.js';
+import type { Config, ScanOptions, PageInfo, Decisions, FullScanResult, ScanResult, ModalAnalysis } from '../types.js';
 import type { Framework } from '../constants.js';
 
 /**
  * Scan context - groups related parameters for cleaner function signatures
  */
 interface ScanContext {
+  config: Config;
   page: import('playwright').Page;
   framework: Framework;
   options: ScanOptions;
   spinner: Ora;
 }
 
-export async function scanCommand(options: ScanOptions): Promise<void> {
+export async function scanCommand(config: Config, options: ScanOptions): Promise<void> {
   const framework = (options.framework || config.framework || 'generic') as Framework;
 
   log.info('\n🤖 Starting AI scanner...\n');
   log.dim(`Framework: ${framework}\n`);
 
-  const sitemap = loadSitemap(options);
+  const sitemap = loadSitemap(config, options);
   const { browser, page } = await createBrowser(true);
   const spinner = ora('Starting browser').start();
 
-  const context: ScanContext = { page, framework, options, spinner };
+  const context: ScanContext = { config, page, framework, options, spinner };
 
   try {
-    await performLogin(page, spinner);
+    await performLogin(context);
     const { results, decisions } = await scanAllPages(context, sitemap);
-    saveResults(results, decisions);
+    saveResults(config, results, decisions);
     printSummary(decisions);
   } finally {
     await browser.close();
@@ -46,8 +46,8 @@ export async function scanCommand(options: ScanOptions): Promise<void> {
 
 // Data loading
 
-function loadSitemap(options: ScanOptions): PageInfo[] {
-  let sitemap = loadSitemapFile();
+function loadSitemap(config: Config, options: ScanOptions): PageInfo[] {
+  let sitemap = loadSitemapFile(config);
 
   if (options.page) {
     sitemap = filterSitemap(sitemap, options.page);
@@ -71,11 +71,13 @@ function filterSitemap(sitemap: PageInfo[], pageFilter: string): PageInfo[] {
 
 // Authentication
 
-async function performLogin(page: import('playwright').Page, spinner: Ora): Promise<void> {
+async function performLogin(context: ScanContext): Promise<void> {
+  const { config, page, spinner } = context;
+
   if (!config.auth.enabled) return;
 
   spinner.text = 'Logging in...';
-  const success = await login(page);
+  const success = await login(config, page);
 
   if (success) {
     spinner.succeed(SUCCESS.LOGGED_IN);
@@ -126,7 +128,7 @@ async function scanSinglePage(
   pageInfo: PageInfo,
   progress: string
 ): Promise<SingleScanResult | null> {
-  const { page, framework, options, spinner } = context;
+  const { config, page, framework, options, spinner } = context;
 
   try {
     await page.goto(pageInfo.url, { waitUntil: 'networkidle' });
@@ -142,7 +144,7 @@ async function scanSinglePage(
 
     spinner.text = `${progress} AI analyzing: ${pageInfo.path}`;
 
-    const analysis = await analyzeHtml(html, pageInfo.path, {
+    const analysis = await analyzeHtml(config, html, pageInfo.path, {
       retries: parseInt(options.retry || '3', 10),
       framework,
     });
@@ -167,7 +169,7 @@ async function scanModals(
   progress: string,
   pagePath: string
 ): Promise<ScanResult> {
-  const { page, framework, spinner } = context;
+  const { config, page, framework, spinner } = context;
 
   if (!analysis.elements) return analysis;
 
@@ -180,7 +182,7 @@ async function scanModals(
   const modals: (ScanResult['modals'][number] & Partial<ModalAnalysis>)[] = [...(analysis.modals || [])];
 
   for (const modal of modalContents) {
-    const modalAnalysis = await analyzeModalContent(modal.html, modal.trigger, { framework });
+    const modalAnalysis = await analyzeModalContent(config, modal.html, modal.trigger, { framework });
     if (modalAnalysis) {
       modals.push({
         triggerElement: modal.trigger,
@@ -206,7 +208,7 @@ function createDecision(analysis: ScanResult): Decisions[string] {
 
 // Saving results
 
-function saveResults(results: FullScanResult[], decisions: Decisions): void {
+function saveResults(config: Config, results: FullScanResult[], decisions: Decisions): void {
   const scannedDir = path.join(config.output.dir, FILES.SCANNED_DIR);
   fs.mkdirSync(scannedDir, { recursive: true });
 

@@ -1,8 +1,7 @@
 import { chromium, Page } from 'playwright';
-import { config } from '../config.js';
 import { SELECTORS, TIMEOUTS, ERRORS } from '../constants.js';
 import { log } from './logger.js';
-import type { PageInfo, BrowserInstance, ModalContent, ElementInfo } from '../types.js';
+import type { Config, PageInfo, BrowserInstance, ModalContent, ElementInfo } from '../types.js';
 
 /**
  * Create a new browser instance
@@ -17,16 +16,16 @@ export async function createBrowser(headless = true): Promise<BrowserInstance> {
 /**
  * Perform login if authentication is enabled
  */
-export async function login(page: Page): Promise<boolean> {
+export async function login(config: Config, page: Page): Promise<boolean> {
   if (!config.auth.enabled) return true;
 
   const loginUrl = config.baseUrl + config.auth.loginUrl;
   await page.goto(loginUrl);
 
   try {
-    await fillLoginForm(page);
-    await submitLoginForm(page);
-    await waitForLoginSuccess(page);
+    await fillLoginForm(config, page);
+    await submitLoginForm(config, page);
+    await waitForLoginSuccess(config, page);
     return true;
   } catch (error) {
     log.error(ERRORS.LOGIN_FAILED);
@@ -35,7 +34,7 @@ export async function login(page: Page): Promise<boolean> {
   }
 }
 
-async function fillLoginForm(page: Page): Promise<void> {
+async function fillLoginForm(config: Config, page: Page): Promise<void> {
   const { username, password } = config.auth.credentials;
   const fields = config.auth.fields;
 
@@ -43,11 +42,11 @@ async function fillLoginForm(page: Page): Promise<void> {
   await page.locator(fields.password).first().fill(password || '');
 }
 
-async function submitLoginForm(page: Page): Promise<void> {
+async function submitLoginForm(config: Config, page: Page): Promise<void> {
   await page.locator(config.auth.fields.submit).first().click();
 }
 
-async function waitForLoginSuccess(page: Page): Promise<void> {
+async function waitForLoginSuccess(config: Config, page: Page): Promise<void> {
   await page.waitForURL(
     (url) => url.pathname.includes(config.auth.successUrl),
     { timeout: TIMEOUTS.LOGIN_WAIT }
@@ -58,6 +57,7 @@ async function waitForLoginSuccess(page: Page): Promise<void> {
  * Crawl all URLs in the application
  */
 export async function crawlUrls(
+  config: Config,
   page: Page,
   onPageFound?: (pageInfo: PageInfo, page: Page) => Promise<void>
 ): Promise<PageInfo[]> {
@@ -67,7 +67,7 @@ export async function crawlUrls(
 
   while (queue.length > 0) {
     const item = queue.shift()!;
-    const result = await processQueueItem(page, item, visited);
+    const result = await processQueueItem(config, page, item, visited);
 
     if (!result) continue;
 
@@ -97,6 +97,7 @@ interface ProcessResult {
 }
 
 async function processQueueItem(
+  config: Config,
   page: Page,
   item: CrawlQueueItem,
   visited: Set<string>
@@ -114,14 +115,14 @@ async function processQueueItem(
   if (visited.has(path)) return null;
 
   // Skip ignored patterns
-  if (shouldIgnorePath(path)) return null;
+  if (shouldIgnorePath(config, path)) return null;
 
   visited.add(path);
 
   try {
-    await navigateToPage(page, url);
+    await navigateToPage(config, page, url);
     const pageInfo = await extractPageInfo(page, url, path);
-    const links = await extractLinks(page);
+    const links = await extractLinks(config, page);
 
     return { pageInfo, links };
   } catch (error) {
@@ -146,11 +147,11 @@ export function parseUrlPath(url: string): string | null {
  * Check if path matches any ignore pattern
  * @internal Exported for testing
  */
-export function shouldIgnorePath(path: string): boolean {
+export function shouldIgnorePath(config: Config, path: string): boolean {
   return config.crawler.ignorePatterns.some((pattern) => path.includes(pattern));
 }
 
-async function navigateToPage(page: Page, url: string): Promise<void> {
+async function navigateToPage(config: Config, page: Page, url: string): Promise<void> {
   await page.goto(url, {
     waitUntil: 'networkidle',
     timeout: config.crawler.timeout,
@@ -189,7 +190,7 @@ async function extractPageInfo(page: Page, url: string, path: string): Promise<P
   };
 }
 
-async function extractLinks(page: Page): Promise<string[]> {
+async function extractLinks(config: Config, page: Page): Promise<string[]> {
   const baseUrl = config.baseUrl;
 
   const links = await page.evaluate((base: string) => {

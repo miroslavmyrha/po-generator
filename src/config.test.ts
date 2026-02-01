@@ -29,8 +29,9 @@ describe('validateConfig', () => {
     process.env.PO_GEN_BASE_URL = 'http://localhost:3000';
     process.env.PO_GEN_AI_KEY = '';
 
-    const { validateConfig } = await import('./config.js');
-    const errors = validateConfig();
+    const { createConfig, validateConfig } = await import('./config.js');
+    const config = createConfig();
+    const errors = validateConfig(config);
 
     expect(errors).toContain('PO_GEN_AI_KEY is required');
   });
@@ -42,8 +43,9 @@ describe('validateConfig', () => {
     process.env.PO_GEN_USERNAME = '';
     process.env.PO_GEN_PASSWORD = 'password123';
 
-    const { validateConfig } = await import('./config.js');
-    const errors = validateConfig();
+    const { createConfig, validateConfig } = await import('./config.js');
+    const config = createConfig();
+    const errors = validateConfig(config);
 
     expect(errors).toContain('PO_GEN_USERNAME is required when auth is enabled');
   });
@@ -55,8 +57,9 @@ describe('validateConfig', () => {
     process.env.PO_GEN_USERNAME = 'user@test.com';
     process.env.PO_GEN_PASSWORD = '';
 
-    const { validateConfig } = await import('./config.js');
-    const errors = validateConfig();
+    const { createConfig, validateConfig } = await import('./config.js');
+    const config = createConfig();
+    const errors = validateConfig(config);
 
     expect(errors).toContain('PO_GEN_PASSWORD is required when auth is enabled');
   });
@@ -66,8 +69,9 @@ describe('validateConfig', () => {
     process.env.PO_GEN_AI_KEY = 'test-key';
     process.env.PO_GEN_AUTH_ENABLED = 'false';
 
-    const { validateConfig } = await import('./config.js');
-    const errors = validateConfig();
+    const { createConfig, validateConfig } = await import('./config.js');
+    const config = createConfig();
+    const errors = validateConfig(config);
 
     expect(errors).toEqual([]);
   });
@@ -79,8 +83,9 @@ describe('validateConfig', () => {
     process.env.PO_GEN_USERNAME = 'user@test.com';
     process.env.PO_GEN_PASSWORD = 'password123';
 
-    const { validateConfig } = await import('./config.js');
-    const errors = validateConfig();
+    const { createConfig, validateConfig } = await import('./config.js');
+    const config = createConfig();
+    const errors = validateConfig(config);
 
     expect(errors).toEqual([]);
   });
@@ -91,8 +96,9 @@ describe('validateConfig', () => {
     process.env.PO_GEN_AUTH_ENABLED = 'false';
     // Username and password intentionally not set
 
-    const { validateConfig } = await import('./config.js');
-    const errors = validateConfig();
+    const { createConfig, validateConfig } = await import('./config.js');
+    const config = createConfig();
+    const errors = validateConfig(config);
 
     expect(errors).not.toContain('PO_GEN_USERNAME is required when auth is enabled');
     expect(errors).not.toContain('PO_GEN_PASSWORD is required when auth is enabled');
@@ -105,8 +111,9 @@ describe('validateConfig', () => {
     process.env.PO_GEN_USERNAME = '';
     process.env.PO_GEN_PASSWORD = '';
 
-    const { validateConfig } = await import('./config.js');
-    const errors = validateConfig();
+    const { createConfig, validateConfig } = await import('./config.js');
+    const config = createConfig();
+    const errors = validateConfig(config);
 
     // Should have multiple errors
     expect(errors.length).toBeGreaterThan(1);
@@ -137,7 +144,7 @@ describe('FRAMEWORK_DEFAULTS', () => {
   });
 });
 
-describe('config object', () => {
+describe('createConfig', () => {
   beforeEach(() => {
     vi.resetModules();
   });
@@ -147,7 +154,8 @@ describe('config object', () => {
     process.env.PO_GEN_AI_KEY = 'custom-key';
     process.env.PO_GEN_FRAMEWORK = 'vuetify';
 
-    const { config } = await import('./config.js');
+    const { createConfig } = await import('./config.js');
+    const config = createConfig();
 
     expect(config.baseUrl).toBe('http://custom-url.com');
     expect(config.ai.apiKey).toBe('custom-key');
@@ -159,7 +167,8 @@ describe('config object', () => {
     delete process.env.PO_GEN_FRAMEWORK;
     delete process.env.PO_GEN_OUTPUT_DIR;
 
-    const { config } = await import('./config.js');
+    const { createConfig } = await import('./config.js');
+    const config = createConfig();
 
     expect(config.baseUrl).toBe('http://localhost:5173');
     expect(config.framework).toBe('generic');
@@ -170,7 +179,8 @@ describe('config object', () => {
     process.env.PO_GEN_MAX_DEPTH = '5';
     process.env.PO_GEN_TIMEOUT = '60000';
 
-    const { config } = await import('./config.js');
+    const { createConfig } = await import('./config.js');
+    const config = createConfig();
 
     expect(config.crawler.maxDepth).toBe(5);
     expect(config.crawler.timeout).toBe(60000);
@@ -179,7 +189,8 @@ describe('config object', () => {
   it('parses ignore patterns from comma-separated string', async () => {
     process.env.PO_GEN_IGNORE = '/logout,/api,/admin';
 
-    const { config } = await import('./config.js');
+    const { createConfig } = await import('./config.js');
+    const config = createConfig();
 
     expect(config.crawler.ignorePatterns).toEqual(['/logout', '/api', '/admin']);
   });
@@ -187,7 +198,8 @@ describe('config object', () => {
   it('uses default for invalid maxDepth', async () => {
     process.env.PO_GEN_MAX_DEPTH = 'invalid';
 
-    const { config } = await import('./config.js');
+    const { createConfig } = await import('./config.js');
+    const config = createConfig();
 
     expect(config.crawler.maxDepth).toBe(10); // default
   });
@@ -195,7 +207,8 @@ describe('config object', () => {
   it('uses default for out-of-range maxDepth', async () => {
     process.env.PO_GEN_MAX_DEPTH = '500'; // over max of 100
 
-    const { config } = await import('./config.js');
+    const { createConfig } = await import('./config.js');
+    const config = createConfig();
 
     expect(config.crawler.maxDepth).toBe(10); // default
   });
@@ -203,9 +216,35 @@ describe('config object', () => {
   it('uses default for negative timeout', async () => {
     process.env.PO_GEN_TIMEOUT = '-1000';
 
-    const { config } = await import('./config.js');
+    const { createConfig } = await import('./config.js');
+    const config = createConfig();
 
     expect(config.crawler.timeout).toBe(30000); // default
+  });
+
+  it('accepts overrides to config values', async () => {
+    const { createConfig } = await import('./config.js');
+    const config = createConfig({
+      baseUrl: 'http://override.com',
+      framework: 'symfony',
+      ai: { apiKey: 'override-key' },
+    });
+
+    expect(config.baseUrl).toBe('http://override.com');
+    expect(config.framework).toBe('symfony');
+    expect(config.ai.apiKey).toBe('override-key');
+  });
+
+  it('deeply merges nested overrides', async () => {
+    const { createConfig } = await import('./config.js');
+    const config = createConfig({
+      auth: { enabled: true, credentials: { username: 'test' } },
+    });
+
+    expect(config.auth.enabled).toBe(true);
+    expect(config.auth.credentials.username).toBe('test');
+    // Other nested values should still exist
+    expect(config.auth.loginUrl).toBeDefined();
   });
 });
 
@@ -225,8 +264,9 @@ describe('URL validation', () => {
     process.env.PO_GEN_BASE_URL = 'http://example.com';
     process.env.PO_GEN_AI_KEY = 'test-key';
 
-    const { validateConfig } = await import('./config.js');
-    const errors = validateConfig();
+    const { createConfig, validateConfig } = await import('./config.js');
+    const config = createConfig();
+    const errors = validateConfig(config);
 
     expect(errors.some(e => e.includes('[WARN]') && e.includes('HTTP'))).toBe(true);
   });
@@ -235,8 +275,9 @@ describe('URL validation', () => {
     process.env.PO_GEN_BASE_URL = 'http://localhost:3000';
     process.env.PO_GEN_AI_KEY = 'test-key';
 
-    const { validateConfig } = await import('./config.js');
-    const errors = validateConfig();
+    const { createConfig, validateConfig } = await import('./config.js');
+    const config = createConfig();
+    const errors = validateConfig(config);
 
     expect(errors.some(e => e.includes('[WARN]'))).toBe(false);
   });
@@ -245,8 +286,9 @@ describe('URL validation', () => {
     process.env.PO_GEN_BASE_URL = 'https://example.com';
     process.env.PO_GEN_AI_KEY = 'test-key';
 
-    const { validateConfig } = await import('./config.js');
-    const errors = validateConfig();
+    const { createConfig, validateConfig } = await import('./config.js');
+    const config = createConfig();
+    const errors = validateConfig(config);
 
     expect(errors.some(e => e.includes('[WARN]'))).toBe(false);
   });
@@ -255,8 +297,9 @@ describe('URL validation', () => {
     process.env.PO_GEN_BASE_URL = 'not-a-valid-url';
     process.env.PO_GEN_AI_KEY = 'test-key';
 
-    const { validateConfig } = await import('./config.js');
-    const errors = validateConfig();
+    const { createConfig, validateConfig } = await import('./config.js');
+    const config = createConfig();
+    const errors = validateConfig(config);
 
     expect(errors.some(e => e.includes('not a valid URL'))).toBe(true);
   });
