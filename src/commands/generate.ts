@@ -13,6 +13,16 @@ interface GeneratedFile {
   pagePath: string;
 }
 
+/**
+ * Generation context - groups related parameters for cleaner function signatures
+ */
+interface GenerateContext {
+  decisions: Decisions;
+  outputDir: string;
+  ext: string;
+  spinner: ReturnType<typeof ora>;
+}
+
 export async function generateCommand(options: GenerateOptions): Promise<void> {
   log.info('\n📝 Generating Page Objects...\n');
 
@@ -31,28 +41,25 @@ export async function generateCommand(options: GenerateOptions): Promise<void> {
   log.dim(`Generating ${pagesToGenerate.length} Page Objects...\n`);
 
   const spinner = ora('Generating...').start();
-  const generated = await generateAllPageObjects(pagesToGenerate, decisions, outputDir, ext, spinner);
+  const context: GenerateContext = { decisions, outputDir, ext, spinner };
+
+  const generated = await generateAllPageObjects(context, pagesToGenerate);
 
   if (generated.length > 0) {
-    await generateIndex(generated, outputDir, ext, spinner);
+    await generateIndex(context, generated);
   }
 
   printSummary(generated, outputDir);
 }
 
-// loadDecisions and getPageObjectPaths imported from data-loader.ts
-
 async function generateAllPageObjects(
-  pagePaths: string[],
-  decisions: Decisions,
-  outputDir: string,
-  ext: string,
-  spinner: ReturnType<typeof ora>
+  context: GenerateContext,
+  pagePaths: string[]
 ): Promise<GeneratedFile[]> {
   const generated: GeneratedFile[] = [];
 
   for (const pagePath of pagePaths) {
-    const result = await generateSinglePageObject(pagePath, decisions, outputDir, ext, spinner);
+    const result = await generateSinglePageObject(context, pagePath);
     if (result) {
       generated.push(result);
     }
@@ -62,12 +69,11 @@ async function generateAllPageObjects(
 }
 
 async function generateSinglePageObject(
-  pagePath: string,
-  decisions: Decisions,
-  outputDir: string,
-  ext: string,
-  spinner: ReturnType<typeof ora>
+  context: GenerateContext,
+  pagePath: string
 ): Promise<GeneratedFile | null> {
+  const { decisions, outputDir, ext, spinner } = context;
+
   const scanData = loadScanResult(pagePath);
 
   if (!scanData) {
@@ -112,11 +118,11 @@ function buildPageData(pagePath: string, analysis: ScanResult, decisions: Decisi
 }
 
 async function generateIndex(
-  generated: GeneratedFile[],
-  outputDir: string,
-  ext: string,
-  spinner: ReturnType<typeof ora>
+  context: GenerateContext,
+  generated: GeneratedFile[]
 ): Promise<void> {
+  const { outputDir, ext, spinner } = context;
+
   spinner.start('Generating index file...');
   const classNames = generated.map((g) => g.className);
   const indexPath = generateIndexFile(classNames, outputDir, ext);
