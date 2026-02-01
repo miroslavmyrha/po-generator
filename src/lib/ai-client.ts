@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { ERRORS, LIMITS } from '../constants.js';
 import { log } from './logger.js';
+import { getErrorMessage, withRetry } from './utils.js';
 import { validateScanResult, validateModalAnalysis } from '../schemas.js';
 import type { Config, ScanResult, ModalAnalysis, AnalyzeOptions } from '../types.js';
 import type { Framework } from '../constants.js';
@@ -164,28 +165,26 @@ export async function analyzeHtml(
   const prompt = getScannerPrompt(framework as Framework);
   const client = createClient(config);
 
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
+  return withRetry(
+    async () => {
       const result = await callAI(client, config.ai.model, prompt, url, cleanHtml);
       const validated = validateScanResult(result);
-
-      if (validated) {
-        return validated;
+      if (!validated) {
+        log.warn('Invalid response format from AI');
       }
-
-      log.warn(`Attempt ${attempt}: Invalid response format, retrying...`);
-    } catch (error) {
-      if (attempt === retries) {
+      return validated;
+    },
+    {
+      maxRetries: retries,
+      onRetry: (attempt, max) => {
+        log.warn(`Attempt ${attempt}/${max} failed, retrying...`);
+      },
+      onFinalFailure: (error) => {
         log.error(ERRORS.AI_FAILED(retries));
-        log.dim((error as Error).message);
-        return null;
-      }
-      log.warn(`Attempt ${attempt}/${retries} failed, retrying...`);
-      await delay(1000 * attempt);
+        log.dim(getErrorMessage(error));
+      },
     }
-  }
-
-  return null;
+  );
 }
 
 /**
@@ -209,21 +208,18 @@ export async function analyzeModalContent(
 
   const prompt = buildModalPrompt(triggerName, framework as Framework, modalSelectors);
 
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
+  return withRetry(
+    async () => {
       const result = await callAISimple(client, config.ai.model, prompt + cleanHtml);
-      const validated = validateModalAnalysis(result);
-
-      if (validated) {
-        return validated;
-      }
-    } catch {
-      if (attempt === retries) return null;
-      await delay(1000 * attempt);
+      return validateModalAnalysis(result);
+    },
+    {
+      maxRetries: retries,
+      onRetry: (attempt, max, error) => {
+        log.debug(`Modal analysis attempt ${attempt}/${max} failed: ${getErrorMessage(error)}`);
+      },
     }
-  }
-
-  return null;
+  );
 }
 
 // Helper functions
@@ -330,10 +326,6 @@ RETURN ONLY VALID JSON:
 
 Modal HTML:
 `;
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export const SUPPORTED_FRAMEWORKS: Framework[] = ['vuetify', 'symfony', 'generic'];

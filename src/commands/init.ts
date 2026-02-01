@@ -87,7 +87,8 @@ function saveEnvFile(config: InitConfig): void {
   const envContent = buildEnvContent(config);
   const envPath = path.join(process.cwd(), '.env');
 
-  fs.writeFileSync(envPath, envContent);
+  // Secure permissions: only owner can read/write (contains credentials)
+  fs.writeFileSync(envPath, envContent, { mode: 0o600 });
 
   log.success(SUCCESS.CONFIG_SAVED);
   log.dim(`   ${envPath}\n`);

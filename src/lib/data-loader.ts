@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { FILES, ERRORS } from '../constants.js';
+import { log } from './logger.js';
 import { AppError } from '../types.js';
 import type { Config, PageInfo, Decisions, FullScanResult } from '../types.js';
 
@@ -61,7 +62,8 @@ export function loadScanResult(config: Config, pagePath: string): FullScanResult
 
   try {
     return loadJsonFile<FullScanResult>(scanFile, '', '');
-  } catch {
+  } catch (error) {
+    log.debug(`Failed to load scan result for ${pagePath}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     return null;
   }
 }

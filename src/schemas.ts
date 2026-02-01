@@ -1,10 +1,14 @@
 import { z } from 'zod';
+import { log } from './lib/logger.js';
 
-// Element schema
+// JS identifier pattern - prevents code injection
+const jsIdentifierPattern = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
+
+// Element schema with validated name
 export const ElementSchema = z.object({
-  name: z.string(),
+  name: z.string().regex(jsIdentifierPattern, 'Element name must be valid JS identifier'),
   component: z.string(),
-  selector: z.string(),
+  selector: z.string().max(1000, 'Selector too long'),
   action: z.enum(['click', 'fill', 'select', 'check', 'toggle', 'none']),
   description: z.string(),
   importance: z.enum(['high', 'medium', 'low']),
@@ -17,7 +21,7 @@ export const PageAnalysisSchema = z.object({
   purpose: z.string(),
   shouldBePageObject: z.union([z.boolean(), z.literal('ask_user')]),
   reason: z.string(),
-  suggestedClassName: z.string(),
+  suggestedClassName: z.string().regex(jsIdentifierPattern, 'Class name must be valid JS identifier'),
 });
 
 // Modal info schema
@@ -42,7 +46,7 @@ export const ScanResultSchema = z.object({
 
 // Modal analysis schema
 export const ModalAnalysisSchema = z.object({
-  modalName: z.string(),
+  modalName: z.string().regex(jsIdentifierPattern, 'Modal name must be valid JS identifier'),
   purpose: z.string(),
   elements: z.array(ElementSchema).default([]),
   actions: z.object({
@@ -59,11 +63,14 @@ export type NavigationInfo = z.infer<typeof NavigationSchema>;
 export type ScanResult = z.infer<typeof ScanResultSchema>;
 export type ModalAnalysis = z.infer<typeof ModalAnalysisSchema>;
 
-// Validation helpers
+// Validation helpers with logging
 export function validateScanResult(data: unknown): ScanResult | null {
   try {
     return ScanResultSchema.parse(data);
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      log.debug(`ScanResult validation failed: ${error.errors.map(e => e.message).join(', ')}`);
+    }
     return null;
   }
 }
@@ -72,6 +79,9 @@ export function validateModalAnalysis(data: unknown): ModalAnalysis | null {
   try {
     return ModalAnalysisSchema.parse(data);
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      log.debug(`ModalAnalysis validation failed: ${error.errors.map(e => e.message).join(', ')}`);
+    }
     return null;
   }
 }

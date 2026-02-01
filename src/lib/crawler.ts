@@ -1,6 +1,7 @@
 import { chromium, Page } from 'playwright';
 import { SELECTORS, TIMEOUTS, ERRORS } from '../constants.js';
 import { log } from './logger.js';
+import { getErrorMessage } from './utils.js';
 import type { Config, PageInfo, BrowserInstance, ModalContent, ElementInfo } from '../types.js';
 
 /**
@@ -29,7 +30,7 @@ export async function login(config: Config, page: Page): Promise<boolean> {
     return true;
   } catch (error) {
     log.error(ERRORS.LOGIN_FAILED);
-    log.dim((error as Error).message);
+    log.dim(getErrorMessage(error));
     return false;
   }
 }
@@ -126,7 +127,7 @@ async function processQueueItem(
 
     return { pageInfo, links };
   } catch (error) {
-    log.warn(`Error on ${path}: ${(error as Error).message}`);
+    log.warn(`Error on ${path}: ${getErrorMessage(error)}`);
     return null;
   }
 }
@@ -240,7 +241,8 @@ async function tryOpenModal(page: Page, trigger: ElementInfo): Promise<ModalCont
     await closeModal(page);
 
     return { trigger: trigger.name, html };
-  } catch {
+  } catch (error) {
+    log.debug(`Modal trigger "${trigger.name}" did not open a modal: ${getErrorMessage(error)}`);
     return null;
   }
 }

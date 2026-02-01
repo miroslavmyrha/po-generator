@@ -1,4 +1,5 @@
 import readline from 'readline';
+import path from 'path';
 
 /**
  * Shared utility functions
@@ -71,4 +72,121 @@ export function escapeSelector(selector: string): string {
 export function truncate(str: string, length: number): string {
   if (!str) return '-';
   return str.length > length ? str.substring(0, length) + '...' : str;
+}
+
+/**
+ * Check if string is a valid JavaScript identifier
+ * Prevents code injection when generating Page Objects
+ */
+export function isValidJsIdentifier(name: string): boolean {
+  if (!name) return false;
+  // Must start with letter, underscore, or $, then letters, numbers, underscore, or $
+  return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name);
+}
+
+/**
+ * Sanitize string to be a valid JavaScript identifier
+ * Removes invalid characters and ensures valid start
+ */
+export function sanitizeJsIdentifier(name: string): string {
+  if (!name) return 'element';
+  // Remove invalid characters
+  let sanitized = name.replace(/[^a-zA-Z0-9_$]/g, '');
+  // Ensure starts with valid character
+  if (sanitized && /^[0-9]/.test(sanitized)) {
+    sanitized = '_' + sanitized;
+  }
+  return sanitized || 'element';
+}
+
+/**
+ * Safely extract error message from unknown error type
+ */
+export function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  return 'Unknown error';
+}
+
+/**
+ * Validate that a path doesn't escape the base directory (path traversal protection)
+ * @throws Error if path traversal is detected
+ */
+export function validateOutputPath(userPath: string, basePath: string = process.cwd()): string {
+  const resolved = path.resolve(basePath, userPath);
+  const base = path.resolve(basePath);
+
+  if (!resolved.startsWith(base + path.sep) && resolved !== base) {
+    throw new Error(`Path traversal detected: ${userPath} escapes base directory`);
+  }
+
+  return resolved;
+}
+
+/**
+ * Retry configuration options
+ */
+export interface RetryOptions {
+  /** Maximum number of retry attempts (default: 3) */
+  maxRetries?: number;
+  /** Base delay in milliseconds between retries (default: 1000) */
+  baseDelay?: number;
+  /** Whether to use exponential backoff (default: true) */
+  exponentialBackoff?: boolean;
+  /** Callback for logging on each retry attempt */
+  onRetry?: (attempt: number, maxRetries: number, error: unknown) => void;
+  /** Callback for logging on final failure */
+  onFinalFailure?: (error: unknown) => void;
+}
+
+/**
+ * Generic retry utility with exponential backoff
+ * Executes an async operation with automatic retries on failure
+ *
+ * @param operation - Async function that may fail and need retrying
+ * @param options - Retry configuration
+ * @returns Result of the operation or null if all retries failed
+ */
+export async function withRetry<T>(
+  operation: () => Promise<T | null>,
+  options: RetryOptions = {}
+): Promise<T | null> {
+  const {
+    maxRetries = 3,
+    baseDelay = 1000,
+    exponentialBackoff = true,
+    onRetry,
+    onFinalFailure,
+  } = options;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await operation();
+      if (result !== null) {
+        return result;
+      }
+      // Result was null but no error - operation returned invalid data
+    } catch (error) {
+      if (onRetry) {
+        onRetry(attempt, maxRetries, error);
+      }
+      if (attempt === maxRetries) {
+        if (onFinalFailure) {
+          onFinalFailure(error);
+        }
+        return null;
+      }
+      const delay = exponentialBackoff ? baseDelay * attempt : baseDelay;
+      await sleep(delay);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Promise-based delay utility
+ */
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

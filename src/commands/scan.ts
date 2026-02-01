@@ -5,7 +5,7 @@ import { ERRORS, SUCCESS, FILES, TIMEOUTS } from '../constants.js';
 import { log } from '../lib/logger.js';
 import { createBrowser, login, getPageHtml, findAndClickModals } from '../lib/crawler.js';
 import { analyzeHtml, analyzeModalContent } from '../lib/ai-client.js';
-import { pathToFileName } from '../lib/utils.js';
+import { pathToFileName, getErrorMessage } from '../lib/utils.js';
 import { loadSitemap as loadSitemapFile, countDecisions } from '../lib/data-loader.js';
 import { AppError } from '../types.js';
 import type { Config, ScanOptions, PageInfo, Decisions, FullScanResult, ScanResult, ModalAnalysis } from '../types.js';
@@ -158,7 +158,7 @@ async function scanSinglePage(
 
     return { analysis: analysisWithModals, decision };
   } catch (error) {
-    log.warn(`Error on ${pageInfo.path}: ${(error as Error).message}`);
+    log.warn(`Error on ${pageInfo.path}: ${getErrorMessage(error)}`);
     return null;
   }
 }

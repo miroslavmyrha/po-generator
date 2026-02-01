@@ -4,6 +4,7 @@ import { FILES, ERRORS, SUCCESS } from '../constants.js';
 import { log } from '../lib/logger.js';
 import { generatePageObject, savePageObject, generateIndexFile } from '../lib/generator.js';
 import { loadDecisions, getPageObjectPaths, loadScanResult } from '../lib/data-loader.js';
+import { validateOutputPath, getErrorMessage } from '../lib/utils.js';
 import type { Config, GenerateOptions, Decisions, ScanResult } from '../types.js';
 
 interface GeneratedFile {
@@ -26,7 +27,10 @@ interface GenerateContext {
 export async function generateCommand(config: Config, options: GenerateOptions): Promise<void> {
   log.info('\n📝 Generating Page Objects...\n');
 
-  const outputDir = options.output || path.join(config.output.dir, FILES.PAGES_DIR);
+  // Validate user-provided output path against path traversal attacks
+  const outputDir = options.output
+    ? validateOutputPath(options.output)
+    : path.join(config.output.dir, FILES.PAGES_DIR);
   const typescript = options.typescript || false;
   const ext = typescript ? 'ts' : 'js';
 
@@ -98,7 +102,7 @@ async function generateSinglePageObject(
 
     return { className, filePath, pagePath };
   } catch (error) {
-    spinner.warn(`Error generating ${pagePath}: ${(error as Error).message}`);
+    spinner.warn(`Error generating ${pagePath}: ${getErrorMessage(error)}`);
     return null;
   }
 }
