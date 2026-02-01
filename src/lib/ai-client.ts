@@ -227,7 +227,11 @@ export async function analyzeModalContent(
 
 // Helper functions
 
-function cleanHtmlContent(html: string): string {
+/**
+ * Clean HTML content by removing scripts, styles, and comments
+ * @internal Exported for testing
+ */
+export function cleanHtmlContent(html: string): string {
   return html
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
     .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
@@ -258,7 +262,11 @@ async function callAISimple(prompt: string): Promise<unknown> {
   return parseJsonResponse(response.choices[0].message.content);
 }
 
-function parseJsonResponse(content: string | null): unknown {
+/**
+ * Parse JSON from AI response, handling markdown code blocks
+ * @internal Exported for testing
+ */
+export function parseJsonResponse(content: string | null): unknown {
   if (!content) {
     throw new Error('Empty AI response');
   }

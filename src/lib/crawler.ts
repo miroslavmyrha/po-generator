@@ -130,7 +130,11 @@ async function processQueueItem(
   }
 }
 
-function parseUrlPath(url: string): string | null {
+/**
+ * Parse URL and extract pathname
+ * @internal Exported for testing
+ */
+export function parseUrlPath(url: string): string | null {
   try {
     return new URL(url).pathname;
   } catch {
@@ -138,7 +142,11 @@ function parseUrlPath(url: string): string | null {
   }
 }
 
-function shouldIgnorePath(path: string): boolean {
+/**
+ * Check if path matches any ignore pattern
+ * @internal Exported for testing
+ */
+export function shouldIgnorePath(path: string): boolean {
   return config.crawler.ignorePatterns.some((pattern) => path.includes(pattern));
 }
 

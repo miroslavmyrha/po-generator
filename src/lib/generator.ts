@@ -1,16 +1,46 @@
 import fs from 'fs';
 import path from 'path';
 import { SELECTORS } from '../constants.js';
-import type { ModalAnalysis, GeneratedPageObject, GeneratorOptions, ElementInfo } from '../types.js';
+import type { GeneratedPageObject, GeneratorOptions, ElementInfo } from '../types.js';
 
-interface PageData {
+/**
+ * Modal element info for generator (subset of ElementInfo, more flexible)
+ */
+interface ModalElementInfo {
+  name: string;
+  component: string;
+  selector: string;
+  action: string;
+  description: string;
+}
+
+/**
+ * Modal data structure accepted by generator
+ * Flexible to accept both simple modal info and full analysis
+ */
+interface ModalData {
+  modalName?: string;
+  triggerElement?: string;
+  purpose?: string;
+  expectedContent?: string;
+  elements?: ModalElementInfo[];
+  actions?: {
+    confirm?: string;
+    cancel?: string;
+  };
+}
+
+/**
+ * Page data structure for generating Page Objects
+ */
+export interface PageData {
   pageAnalysis: {
     url: string;
     purpose: string;
     suggestedClassName?: string;
   };
   elements: ElementInfo[];
-  modals: (ModalAnalysis & { triggerElement?: string })[];
+  modals: ModalData[];
 }
 
 /**
@@ -93,7 +123,7 @@ function generateElementDeclarations(elements: ElementInfo[]): string {
   return code;
 }
 
-function generateModalDeclarations(modals: (ModalAnalysis & { triggerElement?: string })[]): string {
+function generateModalDeclarations(modals: ModalData[]): string {
   if (!modals || modals.length === 0) return '';
 
   let code = '';
@@ -219,7 +249,7 @@ function generateClickMethods(elements: ElementInfo[]): string {
   return code;
 }
 
-function generateModalMethods(modals: (ModalAnalysis & { triggerElement?: string })[]): string {
+function generateModalMethods(modals: ModalData[]): string {
   if (!modals) return '';
 
   let code = '';

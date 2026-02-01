@@ -5,7 +5,7 @@ import { config } from '../config.js';
 import { FILES, ERRORS, SUCCESS } from '../constants.js';
 import { log } from '../lib/logger.js';
 import { generatePageObject, savePageObject, generateIndexFile } from '../lib/generator.js';
-import type { GenerateOptions, Decisions } from '../types.js';
+import type { GenerateOptions, Decisions, ScanResult } from '../types.js';
 
 interface GeneratedFile {
   className: string;
@@ -95,7 +95,8 @@ async function generateSinglePageObject(
 
   const scanData = JSON.parse(fs.readFileSync(scanFile, 'utf-8'));
 
-  if (!scanData.analysis) {
+  const analysis = scanData.analysis;
+  if (!analysis) {
     spinner.warn(`No analysis for ${pagePath}`);
     return null;
   }
@@ -103,7 +104,7 @@ async function generateSinglePageObject(
   spinner.text = `Generating: ${pagePath}`;
 
   try {
-    const pageData = buildPageData(pagePath, scanData, decisions);
+    const pageData = buildPageData(pagePath, analysis, decisions);
     const { code, className } = generatePageObject(pageData, { typescript: ext === 'ts' });
     const filePath = savePageObject(code, className, outputDir, ext);
 
@@ -116,17 +117,17 @@ async function generateSinglePageObject(
   }
 }
 
-function buildPageData(pagePath: string, scanData: any, decisions: Decisions) {
+function buildPageData(pagePath: string, analysis: ScanResult, decisions: Decisions) {
   return {
     pageAnalysis: {
       url: pagePath,
-      purpose: scanData.analysis.pageAnalysis?.purpose || '',
+      purpose: analysis.pageAnalysis?.purpose || '',
       suggestedClassName:
         decisions[pagePath]?.suggestedClassName ||
-        scanData.analysis.pageAnalysis?.suggestedClassName,
+        analysis.pageAnalysis?.suggestedClassName,
     },
-    elements: scanData.analysis.elements || [],
-    modals: scanData.analysis.modals || [],
+    elements: analysis.elements || [],
+    modals: analysis.modals || [],
   };
 }
 

@@ -1,6 +1,20 @@
 import type { Page, Browser, BrowserContext } from 'playwright';
 import type { Framework } from './constants.js';
 
+/**
+ * Custom error class for application errors
+ * Allows distinguishing between expected errors and unexpected exceptions
+ */
+export class AppError extends Error {
+  constructor(
+    message: string,
+    public readonly code: string = 'APP_ERROR'
+  ) {
+    super(message);
+    this.name = 'AppError';
+  }
+}
+
 // Re-export schema types
 export type {
   ElementInfo,
@@ -99,6 +113,11 @@ export type Decisions = Record<string, Decision>;
 // Scan result with page info
 export interface FullScanResult extends PageInfo {
   analysis: import('./schemas.js').ScanResult;
+}
+
+// Scan data file structure (loaded from JSON)
+export interface ScanDataFile extends PageInfo {
+  analysis?: import('./schemas.js').ScanResult;
 }
 
 // Generator types
