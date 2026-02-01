@@ -4,6 +4,7 @@ import readline from 'readline';
 import { config } from '../config.js';
 import { FILES, ERRORS, SUCCESS, MESSAGES } from '../constants.js';
 import { log } from '../lib/logger.js';
+import { AppError } from '../types.js';
 import type { Decisions } from '../types.js';
 
 export async function reviewCommand(): Promise<void> {
@@ -33,8 +34,7 @@ function loadDecisions(): Decisions {
   const decisionsPath = path.join(config.output.dir, FILES.DECISIONS);
 
   if (!fs.existsSync(decisionsPath)) {
-    log.error(ERRORS.DECISIONS_NOT_FOUND);
-    process.exit(1);
+    throw new AppError(ERRORS.DECISIONS_NOT_FOUND, 'DECISIONS_NOT_FOUND');
   }
 
   return JSON.parse(fs.readFileSync(decisionsPath, 'utf-8'));

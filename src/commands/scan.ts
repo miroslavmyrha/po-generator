@@ -2,10 +2,12 @@ import fs from 'fs';
 import path from 'path';
 import ora, { Ora } from 'ora';
 import { config } from '../config.js';
-import { ERRORS, SUCCESS, FILES } from '../constants.js';
+import { ERRORS, SUCCESS, FILES, TIMEOUTS } from '../constants.js';
 import { log } from '../lib/logger.js';
 import { createBrowser, login, getPageHtml, findAndClickModals } from '../lib/crawler.js';
 import { analyzeHtml, analyzeModalContent } from '../lib/ai-client.js';
+import { pathToFileName } from '../lib/utils.js';
+import { AppError } from '../types.js';
 import type { ScanOptions, PageInfo, Decisions, FullScanResult, ScanResult, ModalAnalysis } from '../types.js';
 import type { Framework } from '../constants.js';
 
@@ -35,8 +37,7 @@ function loadSitemap(options: ScanOptions): PageInfo[] {
   const sitemapPath = path.join(config.output.dir, FILES.SITEMAP);
 
   if (!fs.existsSync(sitemapPath)) {
-    log.error(ERRORS.SITEMAP_NOT_FOUND);
-    process.exit(1);
+    throw new AppError(ERRORS.SITEMAP_NOT_FOUND, 'SITEMAP_NOT_FOUND');
   }
 
   let sitemap: PageInfo[] = JSON.parse(fs.readFileSync(sitemapPath, 'utf-8'));
@@ -55,8 +56,7 @@ function filterSitemap(sitemap: PageInfo[], pageFilter: string): PageInfo[] {
   );
 
   if (filtered.length === 0) {
-    log.error(ERRORS.PAGE_NOT_FOUND(pageFilter));
-    process.exit(1);
+    throw new AppError(ERRORS.PAGE_NOT_FOUND(pageFilter), 'PAGE_NOT_FOUND');
   }
 
   return filtered;
@@ -75,7 +75,7 @@ async function performLogin(spinner: Ora): Promise<void> {
     spinner.succeed(SUCCESS.LOGGED_IN);
   } else {
     spinner.fail(ERRORS.LOGIN_FAILED);
-    process.exit(1);
+    throw new AppError(ERRORS.LOGIN_FAILED, 'LOGIN_FAILED');
   }
 }
 
@@ -131,7 +131,13 @@ async function scanSinglePage(
 ): Promise<SingleScanResult | null> {
   try {
     await page.goto(pageInfo.url, { waitUntil: 'networkidle' });
-    await page.waitForSelector(config.crawler.waitForSelector, { timeout: 5000 }).catch(() => {});
+
+    // Wait for main content selector - ignore timeout as page may still be usable
+    await page
+      .waitForSelector(config.crawler.waitForSelector, { timeout: TIMEOUTS.SELECTOR_WAIT })
+      .catch(() => {
+        // Selector not found within timeout - continue anyway, page content may still be valid
+      });
 
     const html = await getPageHtml(page);
 
@@ -217,10 +223,6 @@ function saveResults(results: FullScanResult[], decisions: Decisions): void {
   log.success(SUCCESS.SCAN_COMPLETE);
   log.dim(`Results: ${scannedDir}/`);
   log.dim(`Decisions: ${decisionsPath}`);
-}
-
-function pathToFileName(urlPath: string): string {
-  return urlPath.replace(/\//g, '_').replace(/^_/, '') || 'home';
 }
 
 // Summary

@@ -5,6 +5,8 @@ import { config } from '../config.js';
 import { FILES, SUCCESS, ERRORS } from '../constants.js';
 import { log } from '../lib/logger.js';
 import { createBrowser, login, crawlUrls } from '../lib/crawler.js';
+import { truncate } from '../lib/utils.js';
+import { AppError } from '../types.js';
 import type { CrawlOptions, PageInfo } from '../types.js';
 
 export async function crawlCommand(options: CrawlOptions): Promise<void> {
@@ -32,7 +34,7 @@ async function handleLogin(options: CrawlOptions, spinner: ReturnType<typeof ora
 
   if (!success) {
     spinner.fail(ERRORS.LOGIN_FAILED);
-    process.exit(1);
+    throw new AppError(ERRORS.LOGIN_FAILED, 'LOGIN_FAILED');
   }
 
   spinner.succeed(SUCCESS.LOGGED_IN);
@@ -75,12 +77,8 @@ function printSummary(sitemap: PageInfo[]): void {
     table: p.hasTable ? '✓' : '',
   }));
 
+  // console.table is appropriate here - it's a formatted table output, not debug logging
   console.table(table);
 
   log.info('\n💡 Tip: Run "po-gen scan" for AI element analysis.\n');
-}
-
-function truncate(str: string, length: number): string {
-  if (!str) return '-';
-  return str.length > length ? str.substring(0, length) + '...' : str;
 }

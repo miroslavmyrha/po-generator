@@ -2,27 +2,24 @@ import { crawlCommand } from './crawl.js';
 import { scanCommand } from './scan.js';
 import { reviewCommand } from './review.js';
 import { generateCommand } from './generate.js';
-import { ERRORS, SUCCESS, PHASES } from '../constants.js';
+import { SUCCESS, PHASES } from '../constants.js';
 import { log } from '../lib/logger.js';
 import type { RunOptions } from '../types.js';
 
+const SEPARATOR = '─'.repeat(60);
+
 export async function runCommand(options: RunOptions): Promise<void> {
   log.info('\n🚀 Starting complete workflow...\n');
-  console.log('─'.repeat(60));
+  log.dim(SEPARATOR);
 
   const startTime = Date.now();
 
-  try {
-    await runCrawlPhase();
-    await runScanPhase(options);
-    await runReviewPhase(options);
-    await runGeneratePhase();
+  await runCrawlPhase();
+  await runScanPhase(options);
+  await runReviewPhase(options);
+  await runGeneratePhase();
 
-    printWorkflowComplete(startTime);
-  } catch (error) {
-    log.error(ERRORS.WORKFLOW_FAILED((error as Error).message));
-    process.exit(1);
-  }
+  printWorkflowComplete(startTime);
 }
 
 async function runCrawlPhase(): Promise<void> {
@@ -49,6 +46,6 @@ async function runGeneratePhase(): Promise<void> {
 
 function printWorkflowComplete(startTime: number): void {
   const elapsed = Math.round((Date.now() - startTime) / 1000);
-  console.log('\n' + '─'.repeat(60));
+  log.dim('\n' + SEPARATOR);
   log.success(SUCCESS.WORKFLOW_COMPLETE(elapsed));
 }

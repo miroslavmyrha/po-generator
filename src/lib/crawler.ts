@@ -160,7 +160,9 @@ async function navigateToPage(page: Page, url: string): Promise<void> {
     .waitForSelector(config.crawler.waitForSelector, {
       timeout: TIMEOUTS.SELECTOR_WAIT,
     })
-    .catch(() => {});
+    .catch(() => {
+      // Selector not found within timeout - continue anyway, page content may still be valid
+    });
 }
 
 async function extractPageInfo(page: Page, url: string, path: string): Promise<PageInfo> {
@@ -244,5 +246,6 @@ async function tryOpenModal(page: Page, trigger: ElementInfo): Promise<ModalCont
 
 async function closeModal(page: Page): Promise<void> {
   await page.keyboard.press('Escape');
-  await page.waitForTimeout(300);
+  // Brief delay to allow modal close animation to complete
+  await page.waitForTimeout(TIMEOUTS.MODAL_CLOSE);
 }

@@ -9,6 +9,7 @@ import { reviewCommand } from '../src/commands/review.js';
 import { runCommand } from '../src/commands/run.js';
 import { initCommand } from '../src/commands/init.js';
 import { log } from '../src/lib/logger.js';
+import { AppError } from '../src/types.js';
 
 const program = new Command();
 
@@ -21,7 +22,7 @@ program
 program
   .command('init')
   .description('Initialize - create .env configuration file')
-  .action(initCommand);
+  .action(wrapCommand(initCommand));
 
 // Crawl - discover all URLs in application
 program
@@ -30,10 +31,12 @@ program
   .option('-u, --url <url>', 'Base URL of the application')
   .option('--no-login', 'Skip login')
   .option('-d, --depth <number>', 'Max crawl depth', '10')
-  .action(async (options) => {
-    if (!validateConfiguration(options.url)) return;
-    await crawlCommand(options);
-  });
+  .action(
+    wrapCommand(async (options) => {
+      requireConfig(options.url);
+      await crawlCommand(options);
+    })
+  );
 
 // Scan - AI analyzes page elements
 program
@@ -42,10 +45,12 @@ program
   .option('-p, --page <path>', 'Scan specific page only')
   .option('-f, --framework <type>', 'Framework: vuetify, symfony, generic', config.framework)
   .option('--retry <number>', 'Number of retries on AI error', '3')
-  .action(async (options) => {
-    if (!validateConfiguration()) return;
-    await scanCommand(options);
-  });
+  .action(
+    wrapCommand(async (options) => {
+      requireConfig();
+      await scanCommand(options);
+    })
+  );
 
 // Generate - create Page Objects from scan results
 program
@@ -53,13 +58,13 @@ program
   .description('Generate Page Objects from scan results')
   .option('-o, --output <dir>', 'Output directory')
   .option('--typescript', 'Generate TypeScript files')
-  .action(generateCommand);
+  .action(wrapCommand(generateCommand));
 
 // Review - interactive review of AI decisions
 program
   .command('review')
   .description('Interactive review of AI decisions')
-  .action(reviewCommand);
+  .action(wrapCommand(reviewCommand));
 
 // Run - execute full workflow
 program
@@ -67,17 +72,39 @@ program
   .description('Run full workflow: crawl → scan → generate')
   .option('-f, --framework <type>', 'Framework: vuetify, symfony, generic', config.framework)
   .option('--skip-review', 'Skip interactive review')
-  .action(async (options) => {
-    if (!validateConfiguration()) return;
-    await runCommand(options);
-  });
+  .action(
+    wrapCommand(async (options) => {
+      requireConfig();
+      await runCommand(options);
+    })
+  );
 
 program.parse();
 
 /**
- * Validate configuration and show errors if invalid
+ * Wrap command handler with error handling
  */
-function validateConfiguration(skipIfUrl = false): boolean {
+function wrapCommand<T>(handler: (options: T) => Promise<void>): (options: T) => Promise<void> {
+  return async (options: T) => {
+    try {
+      await handler(options);
+    } catch (error) {
+      if (error instanceof AppError) {
+        log.error(error.message);
+        process.exit(1);
+      }
+      // Unexpected error - show full stack trace
+      log.error(`Unexpected error: ${(error as Error).message}`);
+      console.error(error);
+      process.exit(1);
+    }
+  };
+}
+
+/**
+ * Validate configuration and exit if invalid
+ */
+function requireConfig(skipIfUrl = false): void {
   const errors = validateConfig();
 
   if (errors.length && !skipIfUrl) {
@@ -86,6 +113,4 @@ function validateConfiguration(skipIfUrl = false): boolean {
     log.warn('\nRun "po-gen init" to create configuration.');
     process.exit(1);
   }
-
-  return true;
 }

@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { config } from '../config.js';
-import { ERRORS } from '../constants.js';
+import { ERRORS, LIMITS } from '../constants.js';
 import { log } from './logger.js';
 import { validateScanResult, validateModalAnalysis } from '../schemas.js';
 import type { ScanResult, ModalAnalysis, AnalyzeOptions } from '../types.js';
@@ -198,7 +198,7 @@ export async function analyzeModalContent(
   options: AnalyzeOptions = {}
 ): Promise<ModalAnalysis | null> {
   const { retries = 3, framework = 'generic' } = options;
-  const cleanHtml = html.substring(0, 20000);
+  const cleanHtml = html.substring(0, LIMITS.MODAL_HTML_MAX_LENGTH);
 
   const modalSelectors: Record<Framework, string> = {
     vuetify: '.v-dialog, .v-overlay',
@@ -236,7 +236,7 @@ export function cleanHtmlContent(html: string): string {
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
     .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
     .replace(/<!--[\s\S]*?-->/g, '')
-    .substring(0, 50000);
+    .substring(0, LIMITS.HTML_MAX_LENGTH);
 }
 
 async function callAI(systemPrompt: string, url: string, html: string): Promise<unknown> {

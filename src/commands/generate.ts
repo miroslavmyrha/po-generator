@@ -5,6 +5,8 @@ import { config } from '../config.js';
 import { FILES, ERRORS, SUCCESS } from '../constants.js';
 import { log } from '../lib/logger.js';
 import { generatePageObject, savePageObject, generateIndexFile } from '../lib/generator.js';
+import { pathToFileName } from '../lib/utils.js';
+import { AppError } from '../types.js';
 import type { GenerateOptions, Decisions, ScanResult } from '../types.js';
 
 interface GeneratedFile {
@@ -44,8 +46,7 @@ function loadDecisions(): Decisions {
   const decisionsPath = path.join(config.output.dir, FILES.DECISIONS);
 
   if (!fs.existsSync(decisionsPath)) {
-    log.error(ERRORS.DECISIONS_NOT_FOUND);
-    process.exit(1);
+    throw new AppError(ERRORS.DECISIONS_NOT_FOUND, 'DECISIONS_NOT_FOUND');
   }
 
   return JSON.parse(fs.readFileSync(decisionsPath, 'utf-8'));
@@ -168,8 +169,4 @@ function printUsageExample(generated: GeneratedFile[]): void {
   log.dim(`     const ${varName} = new ${example.className}(page);`);
   log.dim(`     await ${varName}.goto();`);
   log.dim('   });');
-}
-
-function pathToFileName(urlPath: string): string {
-  return urlPath.replace(/\//g, '_').replace(/^_/, '') || 'home';
 }

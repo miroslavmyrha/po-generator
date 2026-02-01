@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { SELECTORS } from '../constants.js';
+import { capitalize, camelToKebab, escapeSelector } from './utils.js';
 import type { GeneratedPageObject, GeneratorOptions, ElementInfo } from '../types.js';
 
 /**
@@ -320,17 +321,4 @@ function pathToClassName(urlPath: string): string {
       .map(capitalize)
       .join('') + 'Page'
   );
-}
-
-function capitalize(str: string): string {
-  if (!str) return '';
-  return str.charAt(0).toUpperCase() + str.slice(1);
-}
-
-function camelToKebab(str: string): string {
-  return str.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
-}
-
-function escapeSelector(selector: string): string {
-  return selector.replace(/'/g, "\\'");
 }

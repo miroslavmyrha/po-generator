@@ -63,6 +63,13 @@ export const TIMEOUTS = {
   MODAL_WAIT: 2000,
   LOGIN_WAIT: 10000,
   NETWORK_IDLE: 30000,
+  MODAL_CLOSE: 300,
+} as const;
+
+// Content limits
+export const LIMITS = {
+  HTML_MAX_LENGTH: 50000,
+  MODAL_HTML_MAX_LENGTH: 20000,
 } as const;
 
 // Selector patterns
