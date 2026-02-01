@@ -1,10 +1,17 @@
 import OpenAI from 'openai';
 import { config } from '../config.js';
 
-const client = new OpenAI({
-  baseURL: config.ai.baseUrl,
-  apiKey: config.ai.apiKey,
-});
+let client = null;
+
+function getClient() {
+  if (!client) {
+    client = new OpenAI({
+      baseURL: config.ai.baseUrl,
+      apiKey: config.ai.apiKey,
+    });
+  }
+  return client;
+}
 
 const SCANNER_PROMPT = `
 Jsi expert na Vuetify 3 a Playwright testování. Analyzuješ HTML stránky a vracíš strukturovaná data pro generování Page Objects.
@@ -80,7 +87,7 @@ export async function analyzeHtml(html, url, retries = 3) {
 
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      const response = await client.chat.completions.create({
+      const response = await getClient().chat.completions.create({
         model: config.ai.model,
         temperature: 0.1,
         messages: [
@@ -147,7 +154,7 @@ ${cleanHtml}
 
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      const response = await client.chat.completions.create({
+      const response = await getClient().chat.completions.create({
         model: config.ai.model,
         temperature: 0.1,
         messages: [{ role: 'user', content: prompt }],
