@@ -15,10 +15,30 @@ Crawls your application, analyzes pages with AI (via OpenAI-compatible API), and
 
 ## Installation
 
+### Global installation (recommended)
+
 ```bash
 git clone https://github.com/miroslavmyrha/po-generator.git
 cd po-generator
 npm install
+npm link
+```
+
+Now you can use `po-gen` command anywhere:
+
+```bash
+po-gen --help
+po-gen init
+po-gen run
+```
+
+### Local installation
+
+```bash
+git clone https://github.com/miroslavmyrha/po-generator.git
+cd po-generator
+npm install
+node --import tsx bin/po-gen.ts --help
 ```
 
 ## Configuration
@@ -63,7 +83,7 @@ PO_GEN_OUTPUT_DIR=./output
 ### Full workflow
 
 ```bash
-npm run run
+po-gen run
 ```
 
 This will:
@@ -75,33 +95,39 @@ This will:
 ### Individual commands
 
 ```bash
+# Initialize configuration
+po-gen init
+
 # Crawl application and create sitemap
-npm run crawl
+po-gen crawl
 
 # AI scan for elements
-npm run scan
+po-gen scan
 
 # Interactive review of AI decisions
-npm run review
+po-gen review
 
 # Generate Page Objects
-npm run generate
+po-gen generate
 ```
 
 ### Command options
 
 ```bash
 # Scan with specific framework
-npm run scan -- --framework symfony
+po-gen scan --framework symfony
 
 # Skip interactive review
-npm run run -- --skip-review
+po-gen run --skip-review
 
 # Generate TypeScript files
-npm run generate -- --typescript
+po-gen generate --typescript
 
 # Scan specific page only
-npm run scan -- --page /dashboard
+po-gen scan --page /dashboard
+
+# Show help for any command
+po-gen crawl --help
 ```
 
 ## Output Structure

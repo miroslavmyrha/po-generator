@@ -1,18 +1,13 @@
 {
   "name": "po-generator",
   "version": "1.0.0",
-  "description": "Page Object Generator s AI (Vuetify, Symfony, generic)",
+  "description": "CLI tool for automated Page Object generation using AI",
   "type": "module",
   "bin": {
     "po-gen": "./bin/po-gen.ts"
   },
   "scripts": {
-    "crawl": "npx tsx bin/po-gen.ts crawl",
-    "scan": "npx tsx bin/po-gen.ts scan",
-    "generate": "npx tsx bin/po-gen.ts generate",
-    "review": "npx tsx bin/po-gen.ts review",
-    "run": "npx tsx bin/po-gen.ts run",
-    "init": "npx tsx bin/po-gen.ts init",
+    "start": "node --import tsx bin/po-gen.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit"
   },
@@ -22,14 +17,25 @@
     "dotenv": "^16.3.1",
     "openai": "^4.20.0",
     "ora": "^8.0.0",
-    "playwright": "^1.40.0"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "playwright": "^1.40.0",
+    "tsx": "^4.21.0"
   },
   "devDependencies": {
     "@types/node": "^25.1.0",
-    "tsx": "^4.21.0",
     "typescript": "^5.9.3"
-  }
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "playwright",
+    "page-object",
+    "testing",
+    "automation",
+    "ai",
+    "vuetify",
+    "symfony"
+  ],
+  "author": "",
+  "license": "MIT"
 }
