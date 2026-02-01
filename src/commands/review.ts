@@ -1,10 +1,12 @@
-import fs from 'fs';
-import path from 'path';
 import readline from 'readline';
-import { config } from '../config.js';
-import { FILES, ERRORS, SUCCESS, MESSAGES } from '../constants.js';
+import { SUCCESS, MESSAGES } from '../constants.js';
 import { log } from '../lib/logger.js';
-import { AppError } from '../types.js';
+import {
+  loadDecisions,
+  saveDecisions,
+  countDecisions,
+  findPagesToReview,
+} from '../lib/data-loader.js';
 import type { Decisions } from '../types.js';
 
 export async function reviewCommand(): Promise<void> {
@@ -28,20 +30,6 @@ export async function reviewCommand(): Promise<void> {
   }
 
   printSummary(decisions);
-}
-
-function loadDecisions(): Decisions {
-  const decisionsPath = path.join(config.output.dir, FILES.DECISIONS);
-
-  if (!fs.existsSync(decisionsPath)) {
-    throw new AppError(ERRORS.DECISIONS_NOT_FOUND, 'DECISIONS_NOT_FOUND');
-  }
-
-  return JSON.parse(fs.readFileSync(decisionsPath, 'utf-8'));
-}
-
-function findPagesToReview(decisions: Decisions): [string, Decisions[string]][] {
-  return Object.entries(decisions).filter(([, d]) => d.decision === 'ask_user');
 }
 
 function printNoReviewNeeded(decisions: Decisions): void {
@@ -110,11 +98,6 @@ function printPageInfo(pagePath: string, decision: Decisions[string]): void {
   console.log();
 }
 
-function saveDecisions(decisions: Decisions): void {
-  const decisionsPath = path.join(config.output.dir, FILES.DECISIONS);
-  fs.writeFileSync(decisionsPath, JSON.stringify(decisions, null, 2));
-}
-
 function printSummary(decisions: Decisions): void {
   const counts = countDecisions(decisions);
 
@@ -126,13 +109,4 @@ function printSummary(decisions: Decisions): void {
   if (counts.askUser === 0 && counts.pageObject > 0) {
     log.warn('\n💡 Tip: Run "po-gen generate" to create Page Objects.');
   }
-}
-
-function countDecisions(decisions: Decisions) {
-  const values = Object.values(decisions);
-  return {
-    pageObject: values.filter((d) => d.decision === 'page_object').length,
-    skip: values.filter((d) => d.decision === 'skip').length,
-    askUser: values.filter((d) => d.decision === 'ask_user').length,
-  };
 }

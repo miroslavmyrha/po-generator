@@ -1,6 +1,19 @@
 import 'dotenv/config';
 import type { Config, FrameworkDefaults } from './types.js';
 
+/**
+ * Parse integer from environment variable with validation
+ * Returns default value if parsing fails or value is out of range
+ */
+function parseIntEnv(value: string | undefined, defaultValue: number, min: number, max: number): number {
+  if (!value) return defaultValue;
+  const parsed = parseInt(value, 10);
+  if (isNaN(parsed) || parsed < min || parsed > max) {
+    return defaultValue;
+  }
+  return parsed;
+}
+
 // Framework-specific defaults
 export const FRAMEWORK_DEFAULTS: Record<string, FrameworkDefaults> = {
   vuetify: {
@@ -63,23 +76,56 @@ export const config: Config = {
   },
 
   crawler: {
-    maxDepth: parseInt(process.env.PO_GEN_MAX_DEPTH || '10'),
-    timeout: parseInt(process.env.PO_GEN_TIMEOUT || '30000'),
+    maxDepth: parseIntEnv(process.env.PO_GEN_MAX_DEPTH, 10, 1, 100),
+    timeout: parseIntEnv(process.env.PO_GEN_TIMEOUT, 30000, 1000, 120000),
     waitForSelector: process.env.PO_GEN_WAIT_SELECTOR || frameworkDefaults.waitForSelector,
     ignorePatterns: (process.env.PO_GEN_IGNORE || '/logout,/api/,.pdf,.jpg,.png,.gif,.css,.js').split(','),
   },
 };
 
+/**
+ * Validate URL format and return warnings for insecure URLs
+ */
+function validateUrl(url: string, name: string): { error?: string; warning?: string } {
+  try {
+    const parsed = new URL(url);
+    // Warn if using HTTP with credentials or external AI service
+    if (parsed.protocol === 'http:' && !parsed.hostname.match(/^(localhost|127\.0\.0\.1)$/)) {
+      return { warning: `${name} uses HTTP - consider HTTPS for security` };
+    }
+    return {};
+  } catch {
+    return { error: `${name} is not a valid URL` };
+  }
+}
+
 export function validateConfig(): string[] {
   const errors: string[] = [];
+  const warnings: string[] = [];
 
-  if (!config.baseUrl) errors.push('PO_GEN_BASE_URL is required');
-  if (!config.ai.apiKey) errors.push('PO_GEN_AI_KEY is required');
+  if (!config.baseUrl) {
+    errors.push('PO_GEN_BASE_URL is required');
+  } else {
+    const baseUrlCheck = validateUrl(config.baseUrl, 'PO_GEN_BASE_URL');
+    if (baseUrlCheck.error) errors.push(baseUrlCheck.error);
+    if (baseUrlCheck.warning) warnings.push(baseUrlCheck.warning);
+  }
+
+  if (!config.ai.apiKey) {
+    errors.push('PO_GEN_AI_KEY is required');
+  }
+
+  if (config.ai.baseUrl) {
+    const aiUrlCheck = validateUrl(config.ai.baseUrl, 'PO_GEN_AI_URL');
+    if (aiUrlCheck.error) errors.push(aiUrlCheck.error);
+    if (aiUrlCheck.warning) warnings.push(aiUrlCheck.warning);
+  }
 
   if (config.auth.enabled) {
     if (!config.auth.credentials.username) errors.push('PO_GEN_USERNAME is required when auth is enabled');
     if (!config.auth.credentials.password) errors.push('PO_GEN_PASSWORD is required when auth is enabled');
   }
 
-  return errors;
+  // Return warnings as part of errors array with [WARN] prefix
+  return [...errors, ...warnings.map((w) => `[WARN] ${w}`)];
 }

@@ -183,4 +183,81 @@ describe('config object', () => {
 
     expect(config.crawler.ignorePatterns).toEqual(['/logout', '/api', '/admin']);
   });
+
+  it('uses default for invalid maxDepth', async () => {
+    process.env.PO_GEN_MAX_DEPTH = 'invalid';
+
+    const { config } = await import('./config.js');
+
+    expect(config.crawler.maxDepth).toBe(10); // default
+  });
+
+  it('uses default for out-of-range maxDepth', async () => {
+    process.env.PO_GEN_MAX_DEPTH = '500'; // over max of 100
+
+    const { config } = await import('./config.js');
+
+    expect(config.crawler.maxDepth).toBe(10); // default
+  });
+
+  it('uses default for negative timeout', async () => {
+    process.env.PO_GEN_TIMEOUT = '-1000';
+
+    const { config } = await import('./config.js');
+
+    expect(config.crawler.timeout).toBe(30000); // default
+  });
+});
+
+describe('URL validation', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    vi.resetModules();
+    process.env = { ...originalEnv };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it('warns when using HTTP with non-localhost URL', async () => {
+    process.env.PO_GEN_BASE_URL = 'http://example.com';
+    process.env.PO_GEN_AI_KEY = 'test-key';
+
+    const { validateConfig } = await import('./config.js');
+    const errors = validateConfig();
+
+    expect(errors.some(e => e.includes('[WARN]') && e.includes('HTTP'))).toBe(true);
+  });
+
+  it('does not warn when using HTTP with localhost', async () => {
+    process.env.PO_GEN_BASE_URL = 'http://localhost:3000';
+    process.env.PO_GEN_AI_KEY = 'test-key';
+
+    const { validateConfig } = await import('./config.js');
+    const errors = validateConfig();
+
+    expect(errors.some(e => e.includes('[WARN]'))).toBe(false);
+  });
+
+  it('does not warn when using HTTPS', async () => {
+    process.env.PO_GEN_BASE_URL = 'https://example.com';
+    process.env.PO_GEN_AI_KEY = 'test-key';
+
+    const { validateConfig } = await import('./config.js');
+    const errors = validateConfig();
+
+    expect(errors.some(e => e.includes('[WARN]'))).toBe(false);
+  });
+
+  it('returns error for invalid URL format', async () => {
+    process.env.PO_GEN_BASE_URL = 'not-a-valid-url';
+    process.env.PO_GEN_AI_KEY = 'test-key';
+
+    const { validateConfig } = await import('./config.js');
+    const errors = validateConfig();
+
+    expect(errors.some(e => e.includes('not a valid URL'))).toBe(true);
+  });
 });

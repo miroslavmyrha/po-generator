@@ -7,6 +7,7 @@ import { log } from '../lib/logger.js';
 import { createBrowser, login, getPageHtml, findAndClickModals } from '../lib/crawler.js';
 import { analyzeHtml, analyzeModalContent } from '../lib/ai-client.js';
 import { pathToFileName } from '../lib/utils.js';
+import { loadSitemap as loadSitemapFile, countDecisions } from '../lib/data-loader.js';
 import { AppError } from '../types.js';
 import type { ScanOptions, PageInfo, Decisions, FullScanResult, ScanResult, ModalAnalysis } from '../types.js';
 import type { Framework } from '../constants.js';
@@ -34,13 +35,7 @@ export async function scanCommand(options: ScanOptions): Promise<void> {
 // Data loading
 
 function loadSitemap(options: ScanOptions): PageInfo[] {
-  const sitemapPath = path.join(config.output.dir, FILES.SITEMAP);
-
-  if (!fs.existsSync(sitemapPath)) {
-    throw new AppError(ERRORS.SITEMAP_NOT_FOUND, 'SITEMAP_NOT_FOUND');
-  }
-
-  let sitemap: PageInfo[] = JSON.parse(fs.readFileSync(sitemapPath, 'utf-8'));
+  let sitemap = loadSitemapFile();
 
   if (options.page) {
     sitemap = filterSitemap(sitemap, options.page);
@@ -242,11 +237,4 @@ function printSummary(decisions: Decisions): void {
   }
 }
 
-function countDecisions(decisions: Decisions) {
-  const values = Object.values(decisions);
-  return {
-    pageObject: values.filter((d) => d.decision === 'page_object').length,
-    skip: values.filter((d) => d.decision === 'skip').length,
-    askUser: values.filter((d) => d.decision === 'ask_user').length,
-  };
-}
+// countDecisions imported from data-loader.ts

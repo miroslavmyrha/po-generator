@@ -239,6 +239,17 @@ export function cleanHtmlContent(html: string): string {
     .substring(0, LIMITS.HTML_MAX_LENGTH);
 }
 
+/**
+ * Extract content from AI response with validation
+ */
+function extractResponseContent(response: OpenAI.Chat.Completions.ChatCompletion): string {
+  const choice = response.choices?.[0];
+  if (!choice?.message?.content) {
+    throw new Error('Invalid AI response: missing choices or content');
+  }
+  return choice.message.content;
+}
+
 async function callAI(systemPrompt: string, url: string, html: string): Promise<unknown> {
   const response = await getClient().chat.completions.create({
     model: config.ai.model,
@@ -249,7 +260,7 @@ async function callAI(systemPrompt: string, url: string, html: string): Promise<
     ],
   });
 
-  return parseJsonResponse(response.choices[0].message.content);
+  return parseJsonResponse(extractResponseContent(response));
 }
 
 async function callAISimple(prompt: string): Promise<unknown> {
@@ -259,7 +270,7 @@ async function callAISimple(prompt: string): Promise<unknown> {
     messages: [{ role: 'user', content: prompt }],
   });
 
-  return parseJsonResponse(response.choices[0].message.content);
+  return parseJsonResponse(extractResponseContent(response));
 }
 
 /**

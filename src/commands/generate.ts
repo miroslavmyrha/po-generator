@@ -1,12 +1,10 @@
-import fs from 'fs';
 import path from 'path';
 import ora from 'ora';
 import { config } from '../config.js';
 import { FILES, ERRORS, SUCCESS } from '../constants.js';
 import { log } from '../lib/logger.js';
 import { generatePageObject, savePageObject, generateIndexFile } from '../lib/generator.js';
-import { pathToFileName } from '../lib/utils.js';
-import { AppError } from '../types.js';
+import { loadDecisions, getPageObjectPaths, loadScanResult } from '../lib/data-loader.js';
 import type { GenerateOptions, Decisions, ScanResult } from '../types.js';
 
 interface GeneratedFile {
@@ -42,21 +40,7 @@ export async function generateCommand(options: GenerateOptions): Promise<void> {
   printSummary(generated, outputDir);
 }
 
-function loadDecisions(): Decisions {
-  const decisionsPath = path.join(config.output.dir, FILES.DECISIONS);
-
-  if (!fs.existsSync(decisionsPath)) {
-    throw new AppError(ERRORS.DECISIONS_NOT_FOUND, 'DECISIONS_NOT_FOUND');
-  }
-
-  return JSON.parse(fs.readFileSync(decisionsPath, 'utf-8'));
-}
-
-function getPageObjectPaths(decisions: Decisions): string[] {
-  return Object.entries(decisions)
-    .filter(([, d]) => d.decision === 'page_object')
-    .map(([pagePath]) => pagePath);
-}
+// loadDecisions and getPageObjectPaths imported from data-loader.ts
 
 async function generateAllPageObjects(
   pagePaths: string[],
@@ -66,10 +50,9 @@ async function generateAllPageObjects(
   spinner: ReturnType<typeof ora>
 ): Promise<GeneratedFile[]> {
   const generated: GeneratedFile[] = [];
-  const scannedDir = path.join(config.output.dir, FILES.SCANNED_DIR);
 
   for (const pagePath of pagePaths) {
-    const result = await generateSinglePageObject(pagePath, decisions, scannedDir, outputDir, ext, spinner);
+    const result = await generateSinglePageObject(pagePath, decisions, outputDir, ext, spinner);
     if (result) {
       generated.push(result);
     }
@@ -81,20 +64,16 @@ async function generateAllPageObjects(
 async function generateSinglePageObject(
   pagePath: string,
   decisions: Decisions,
-  scannedDir: string,
   outputDir: string,
   ext: string,
   spinner: ReturnType<typeof ora>
 ): Promise<GeneratedFile | null> {
-  const fileName = pathToFileName(pagePath);
-  const scanFile = path.join(scannedDir, `${fileName}.json`);
+  const scanData = loadScanResult(pagePath);
 
-  if (!fs.existsSync(scanFile)) {
+  if (!scanData) {
     spinner.warn(ERRORS.SCAN_NOT_FOUND(pagePath));
     return null;
   }
-
-  const scanData = JSON.parse(fs.readFileSync(scanFile, 'utf-8'));
 
   const analysis = scanData.analysis;
   if (!analysis) {
