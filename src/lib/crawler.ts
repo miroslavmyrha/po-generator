@@ -1,8 +1,10 @@
 import { chromium, Page } from 'playwright';
-import { SELECTORS, TIMEOUTS, ERRORS } from '../constants.js';
+import { SELECTORS, TIMEOUTS, ERRORS, SUCCESS } from '../constants.js';
 import { log } from './logger.js';
 import { getErrorMessage } from './utils.js';
+import { AppError } from '../types.js';
 import type { Config, PageInfo, BrowserInstance, ModalContent, ElementInfo } from '../types.js';
+import type { Ora } from 'ora';
 
 /**
  * Create a new browser instance
@@ -52,6 +54,35 @@ async function waitForLoginSuccess(config: Config, page: Page): Promise<void> {
     (url) => url.pathname.includes(config.auth.successUrl),
     { timeout: TIMEOUTS.LOGIN_WAIT }
   );
+}
+
+/**
+ * Handle login with spinner feedback - shared by crawl and scan commands
+ * @throws AppError if login fails
+ */
+export async function handleAuthenticatedLogin(
+  config: Config,
+  page: Page,
+  spinner: Ora,
+  options?: { skipIfDisabled?: boolean }
+): Promise<void> {
+  const skipIfDisabled = options?.skipIfDisabled ?? false;
+
+  if (!config.auth.enabled) {
+    if (skipIfDisabled) return;
+    // Auth not enabled but we were asked to login - just skip
+    return;
+  }
+
+  spinner.text = 'Logging in...';
+  const success = await login(config, page);
+
+  if (success) {
+    spinner.succeed(SUCCESS.LOGGED_IN);
+  } else {
+    spinner.fail(ERRORS.LOGIN_FAILED);
+    throw new AppError(ERRORS.LOGIN_FAILED, 'LOGIN_FAILED');
+  }
 }
 
 /**

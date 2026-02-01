@@ -89,3 +89,10 @@ export const SELECTORS = {
 // Supported frameworks
 export const FRAMEWORKS = ['vuetify', 'symfony', 'generic'] as const;
 export type Framework = typeof FRAMEWORKS[number];
+
+// Framework-specific modal selectors for AI analysis
+export const FRAMEWORK_MODAL_SELECTORS: Record<Framework, string> = {
+  vuetify: '.v-dialog, .v-overlay',
+  symfony: '.modal, .modal-dialog, [data-controller*="modal"]',
+  generic: '.modal, [role="dialog"], dialog, .overlay',
+} as const;

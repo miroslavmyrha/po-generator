@@ -1,10 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import ora from 'ora';
-import { FILES, SUCCESS, ERRORS } from '../constants.js';
+import { FILES, SUCCESS } from '../constants.js';
 import { log } from '../lib/logger.js';
-import { createBrowser, login, crawlUrls } from '../lib/crawler.js';
-import { truncate } from '../lib/utils.js';
+import { createBrowser, crawlUrls, handleAuthenticatedLogin } from '../lib/crawler.js';
+import { truncate, getErrorMessage } from '../lib/utils.js';
 import { AppError } from '../types.js';
 import type { Config, CrawlOptions, PageInfo } from '../types.js';
 
@@ -15,32 +15,16 @@ export async function crawlCommand(config: Config, options: CrawlOptions): Promi
   const { browser, page } = await createBrowser(true);
 
   try {
-    await handleLogin(config, options, page, spinner);
+    // Handle login if auth is enabled and not explicitly skipped
+    if (options.login !== false) {
+      await handleAuthenticatedLogin(config, page, spinner, { skipIfDisabled: true });
+    }
     const sitemap = await performCrawl(config, page, spinner);
     saveSitemap(config, sitemap);
     printSummary(sitemap);
   } finally {
     await browser.close();
   }
-}
-
-async function handleLogin(
-  config: Config,
-  options: CrawlOptions,
-  page: import('playwright').Page,
-  spinner: ReturnType<typeof ora>
-): Promise<void> {
-  if (!config.auth.enabled || options.login === false) return;
-
-  spinner.text = 'Logging in...';
-  const success = await login(config, page);
-
-  if (!success) {
-    spinner.fail(ERRORS.LOGIN_FAILED);
-    throw new AppError(ERRORS.LOGIN_FAILED, 'LOGIN_FAILED');
-  }
-
-  spinner.succeed(SUCCESS.LOGGED_IN);
 }
 
 async function performCrawl(
@@ -62,12 +46,15 @@ async function performCrawl(
 
 function saveSitemap(config: Config, sitemap: PageInfo[]): void {
   const outputDir = config.output.dir;
-  fs.mkdirSync(outputDir, { recursive: true });
-
   const sitemapPath = path.join(outputDir, FILES.SITEMAP);
-  fs.writeFileSync(sitemapPath, JSON.stringify(sitemap, null, 2));
 
-  log.success(`Sitemap saved: ${sitemapPath}`);
+  try {
+    fs.mkdirSync(outputDir, { recursive: true });
+    fs.writeFileSync(sitemapPath, JSON.stringify(sitemap, null, 2));
+    log.success(`Sitemap saved: ${sitemapPath}`);
+  } catch (error) {
+    throw new AppError(`Failed to save sitemap: ${getErrorMessage(error)}`, 'SAVE_FAILED');
+  }
 }
 
 function printSummary(sitemap: PageInfo[]): void {

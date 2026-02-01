@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { FILES, ERRORS } from '../constants.js';
 import { log } from './logger.js';
+import { pathToFileName } from './utils.js';
 import { AppError } from '../types.js';
 import type { Config, PageInfo, Decisions, FullScanResult } from '../types.js';
 
@@ -53,7 +54,7 @@ export function loadSitemap(config: Config): PageInfo[] {
  * Load scan result for a specific page
  */
 export function loadScanResult(config: Config, pagePath: string): FullScanResult | null {
-  const fileName = pagePath.replace(/\//g, '_').replace(/^_/, '') || 'home';
+  const fileName = pathToFileName(pagePath);
   const scanFile = path.join(config.output.dir, FILES.SCANNED_DIR, `${fileName}.json`);
 
   if (!fs.existsSync(scanFile)) {

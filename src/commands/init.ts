@@ -2,7 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { SUCCESS } from '../constants.js';
 import { log } from '../lib/logger.js';
-import { createReadlineInterface, createQuestionFn } from '../lib/utils.js';
+import { createReadlineInterface, createQuestionFn, getErrorMessage } from '../lib/utils.js';
+import { AppError } from '../types.js';
 
 interface InitConfig {
   framework: string;
@@ -33,11 +34,26 @@ export async function initCommand(): Promise<void> {
 
   log.dim('Answer the questions to create configuration.\n');
 
-  const config = await collectConfiguration(question);
-  rl.close();
+  let config: InitConfig;
+  try {
+    config = await collectConfiguration(question);
+  } finally {
+    // Ensure readline is always closed
+    rl.close();
+  }
 
-  saveEnvFile(config);
-  createOutputDirectory(config.outputDir);
+  try {
+    saveEnvFile(config);
+  } catch (error) {
+    throw new AppError(`Failed to save .env file: ${getErrorMessage(error)}`, 'INIT_FAILED');
+  }
+
+  try {
+    createOutputDirectory(config.outputDir);
+  } catch (error) {
+    throw new AppError(`Failed to create output directory: ${getErrorMessage(error)}`, 'INIT_FAILED');
+  }
+
   printProjectStructure(config.outputDir);
   printNextSteps();
 }

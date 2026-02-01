@@ -1,4 +1,4 @@
-import { SUCCESS, MESSAGES } from '../constants.js';
+import { SUCCESS, MESSAGES, ERRORS } from '../constants.js';
 import { log } from '../lib/logger.js';
 import {
   loadDecisions,
@@ -6,13 +6,23 @@ import {
   countDecisions,
   findPagesToReview,
 } from '../lib/data-loader.js';
-import { createReadlineInterface, createQuestionFn } from '../lib/utils.js';
+import { createReadlineInterface, createQuestionFn, getErrorMessage } from '../lib/utils.js';
+import { AppError } from '../types.js';
 import type { Config, Decisions } from '../types.js';
 
 export async function reviewCommand(config: Config): Promise<void> {
   log.info('\n🔍 Interactive decision review...\n');
 
-  const decisions = loadDecisions(config);
+  let decisions: Decisions;
+  try {
+    decisions = loadDecisions(config);
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    throw new AppError(`Failed to load decisions: ${getErrorMessage(error)}`, 'LOAD_FAILED');
+  }
+
   const toReview = findPagesToReview(decisions);
 
   if (toReview.length === 0) {
@@ -25,8 +35,12 @@ export async function reviewCommand(config: Config): Promise<void> {
   const modified = await interactiveReview(toReview, decisions);
 
   if (modified) {
-    saveDecisions(config, decisions);
-    log.success(SUCCESS.CHANGES_SAVED);
+    try {
+      saveDecisions(config, decisions);
+      log.success(SUCCESS.CHANGES_SAVED);
+    } catch (error) {
+      throw new AppError(`Failed to save decisions: ${getErrorMessage(error)}`, 'SAVE_FAILED');
+    }
   }
 
   printSummary(decisions);
@@ -52,29 +66,33 @@ async function interactiveReview(
 
   let modified = false;
 
-  for (const [pagePath, decision] of toReview) {
-    printPageInfo(pagePath, decision);
+  try {
+    for (const [pagePath, decision] of toReview) {
+      printPageInfo(pagePath, decision);
 
-    const answer = await question(`   ${MESSAGES.REVIEW_PROMPT}`);
+      const answer = await question(`   ${MESSAGES.REVIEW_PROMPT}`);
 
-    if (answer.toLowerCase() === 'q') {
-      break;
+      if (answer.toLowerCase() === 'q') {
+        break;
+      }
+
+      if (answer.toLowerCase() === 'p') {
+        decisions[pagePath].decision = 'page_object';
+        log.success(`   → ${MESSAGES.MARKED_AS_PAGE_OBJECT}`);
+        modified = true;
+      } else if (answer.toLowerCase() === 's') {
+        decisions[pagePath].decision = 'skip';
+        log.dim(`   → ${MESSAGES.MARKED_AS_SKIP}`);
+        modified = true;
+      }
+
+      console.log();
     }
-
-    if (answer.toLowerCase() === 'p') {
-      decisions[pagePath].decision = 'page_object';
-      log.success(`   → ${MESSAGES.MARKED_AS_PAGE_OBJECT}`);
-      modified = true;
-    } else if (answer.toLowerCase() === 's') {
-      decisions[pagePath].decision = 'skip';
-      log.dim(`   → ${MESSAGES.MARKED_AS_SKIP}`);
-      modified = true;
-    }
-
-    console.log();
+  } finally {
+    // Ensure readline is always closed, even on error
+    rl.close();
   }
 
-  rl.close();
   return modified;
 }
 

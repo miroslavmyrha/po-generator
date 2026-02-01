@@ -3,7 +3,7 @@ import path from 'path';
 import ora, { Ora } from 'ora';
 import { ERRORS, SUCCESS, FILES, TIMEOUTS } from '../constants.js';
 import { log } from '../lib/logger.js';
-import { createBrowser, login, getPageHtml, findAndClickModals } from '../lib/crawler.js';
+import { createBrowser, getPageHtml, findAndClickModals, handleAuthenticatedLogin } from '../lib/crawler.js';
 import { analyzeHtml, analyzeModalContent } from '../lib/ai-client.js';
 import { pathToFileName, getErrorMessage } from '../lib/utils.js';
 import { loadSitemap as loadSitemapFile, countDecisions } from '../lib/data-loader.js';
@@ -35,7 +35,7 @@ export async function scanCommand(config: Config, options: ScanOptions): Promise
   const context: ScanContext = { config, page, framework, options, spinner };
 
   try {
-    await performLogin(context);
+    await handleAuthenticatedLogin(config, page, spinner, { skipIfDisabled: true });
     const { results, decisions } = await scanAllPages(context, sitemap);
     saveResults(config, results, decisions);
     printSummary(decisions);
@@ -67,24 +67,6 @@ function filterSitemap(sitemap: PageInfo[], pageFilter: string): PageInfo[] {
   }
 
   return filtered;
-}
-
-// Authentication
-
-async function performLogin(context: ScanContext): Promise<void> {
-  const { config, page, spinner } = context;
-
-  if (!config.auth.enabled) return;
-
-  spinner.text = 'Logging in...';
-  const success = await login(config, page);
-
-  if (success) {
-    spinner.succeed(SUCCESS.LOGGED_IN);
-  } else {
-    spinner.fail(ERRORS.LOGIN_FAILED);
-    throw new AppError(ERRORS.LOGIN_FAILED, 'LOGIN_FAILED');
-  }
 }
 
 // Scanning
@@ -195,6 +177,12 @@ async function scanModals(
   return { ...analysis, modals };
 }
 
+/**
+ * Convert AI analysis result into a decision record
+ * Maps AI's shouldBePageObject (true/false/ask_user) to decision enum
+ * @param analysis - Scan result from AI analysis
+ * @returns Decision record with status, reason, and metadata
+ */
 function createDecision(analysis: ScanResult): Decisions[string] {
   const shouldBe = analysis.pageAnalysis.shouldBePageObject;
 
@@ -210,20 +198,25 @@ function createDecision(analysis: ScanResult): Decisions[string] {
 
 function saveResults(config: Config, results: FullScanResult[], decisions: Decisions): void {
   const scannedDir = path.join(config.output.dir, FILES.SCANNED_DIR);
-  fs.mkdirSync(scannedDir, { recursive: true });
-
-  for (const result of results) {
-    const fileName = pathToFileName(result.path);
-    const filePath = path.join(scannedDir, `${fileName}.json`);
-    fs.writeFileSync(filePath, JSON.stringify(result, null, 2));
-  }
-
   const decisionsPath = path.join(config.output.dir, FILES.DECISIONS);
-  fs.writeFileSync(decisionsPath, JSON.stringify(decisions, null, 2));
 
-  log.success(SUCCESS.SCAN_COMPLETE);
-  log.dim(`Results: ${scannedDir}/`);
-  log.dim(`Decisions: ${decisionsPath}`);
+  try {
+    fs.mkdirSync(scannedDir, { recursive: true });
+
+    for (const result of results) {
+      const fileName = pathToFileName(result.path);
+      const filePath = path.join(scannedDir, `${fileName}.json`);
+      fs.writeFileSync(filePath, JSON.stringify(result, null, 2));
+    }
+
+    fs.writeFileSync(decisionsPath, JSON.stringify(decisions, null, 2));
+
+    log.success(SUCCESS.SCAN_COMPLETE);
+    log.dim(`Results: ${scannedDir}/`);
+    log.dim(`Decisions: ${decisionsPath}`);
+  } catch (error) {
+    throw new AppError(`Failed to save scan results: ${getErrorMessage(error)}`, 'SAVE_FAILED');
+  }
 }
 
 // Summary

@@ -1,5 +1,6 @@
 import readline from 'readline';
 import path from 'path';
+import { AppError } from '../types.js';
 
 /**
  * Shared utility functions
@@ -117,7 +118,7 @@ export function validateOutputPath(userPath: string, basePath: string = process.
   const base = path.resolve(basePath);
 
   if (!resolved.startsWith(base + path.sep) && resolved !== base) {
-    throw new Error(`Path traversal detected: ${userPath} escapes base directory`);
+    throw new AppError(`Path traversal detected: ${userPath} escapes base directory`, 'PATH_TRAVERSAL');
   }
 
   return resolved;

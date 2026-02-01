@@ -1,8 +1,9 @@
 import OpenAI from 'openai';
-import { ERRORS, LIMITS } from '../constants.js';
+import { ERRORS, LIMITS, FRAMEWORK_MODAL_SELECTORS } from '../constants.js';
 import { log } from './logger.js';
 import { getErrorMessage, withRetry } from './utils.js';
 import { validateScanResult, validateModalAnalysis } from '../schemas.js';
+import { AppError } from '../types.js';
 import type { Config, ScanResult, ModalAnalysis, AnalyzeOptions } from '../types.js';
 import type { Framework } from '../constants.js';
 
@@ -146,6 +147,12 @@ RETURN ONLY VALID JSON (no markdown, no extra text):
 }
 `;
 
+/**
+ * Build the complete scanner prompt for a given framework
+ * Combines base prompt + framework-specific selectors + output format
+ * @param framework - Target framework (vuetify, symfony, or generic)
+ * @returns Complete prompt string for AI analysis
+ */
 function getScannerPrompt(framework: Framework): string {
   const frameworkPrompt = FRAMEWORK_PROMPTS[framework] || FRAMEWORK_PROMPTS.generic;
   return BASE_PROMPT + frameworkPrompt + OUTPUT_FORMAT;
@@ -200,13 +207,7 @@ export async function analyzeModalContent(
   const cleanHtml = html.substring(0, LIMITS.MODAL_HTML_MAX_LENGTH);
   const client = createClient(config);
 
-  const modalSelectors: Record<Framework, string> = {
-    vuetify: '.v-dialog, .v-overlay',
-    symfony: '.modal, .modal-dialog, [data-controller*="modal"]',
-    generic: '.modal, [role="dialog"], dialog, .overlay',
-  };
-
-  const prompt = buildModalPrompt(triggerName, framework as Framework, modalSelectors);
+  const prompt = buildModalPrompt(triggerName, framework as Framework, FRAMEWORK_MODAL_SELECTORS);
 
   return withRetry(
     async () => {
@@ -242,7 +243,7 @@ export function cleanHtmlContent(html: string): string {
 function extractResponseContent(response: OpenAI.Chat.Completions.ChatCompletion): string {
   const choice = response.choices?.[0];
   if (!choice?.message?.content) {
-    throw new Error('Invalid AI response: missing choices or content');
+    throw new AppError('Invalid AI response: missing choices or content', 'AI_INVALID_RESPONSE');
   }
   return choice.message.content;
 }
@@ -282,17 +283,24 @@ async function callAISimple(client: OpenAI, model: string, prompt: string): Prom
  */
 export function parseJsonResponse(content: string | null): unknown {
   if (!content) {
-    throw new Error('Empty AI response');
+    throw new AppError('Empty AI response', 'AI_EMPTY_RESPONSE');
   }
 
   const jsonMatch = content.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
-    throw new Error('No JSON found in response');
+    throw new AppError('No JSON found in response', 'AI_INVALID_JSON');
   }
 
   return JSON.parse(jsonMatch[0]);
 }
 
+/**
+ * Build AI prompt for modal content analysis
+ * @param triggerName - Name of the element that triggered the modal
+ * @param framework - Target framework for selector patterns
+ * @param selectors - Framework-specific modal container selectors
+ * @returns Formatted prompt string for modal analysis
+ */
 function buildModalPrompt(
   triggerName: string,
   framework: Framework,

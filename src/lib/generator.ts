@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { SELECTORS } from '../constants.js';
-import { capitalize, camelToKebab, escapeSelector } from './utils.js';
+import { capitalize, camelToKebab, escapeSelector, sanitizeJsIdentifier } from './utils.js';
 import type { GeneratedPageObject, GeneratorOptions, ElementInfo } from '../types.js';
 
 /**
@@ -99,12 +99,15 @@ function generateConstructor(pageData: PageData, typescript: boolean): string {
   const typeAnnotation = typescript ? ': Page' : '';
   const pageType = typescript ? 'Page' : 'import("@playwright/test").Page';
 
+  // Escape URL to prevent code injection via malicious URL parameters
+  const escapedUrl = pageData.pageAnalysis.url.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
   let code = `  /**
    * @param {${pageType}} page
    */
   constructor(page${typeAnnotation}) {
     this.page = page;
-    this.url = '${pageData.pageAnalysis.url}';\n\n`;
+    this.url = '${escapedUrl}';\n\n`;
 
   code += generateElementDeclarations(pageData.elements);
   code += generateModalDeclarations(pageData.modals);
@@ -130,7 +133,9 @@ function generateModalDeclarations(modals: ModalData[]): string {
   let code = '';
   for (const modal of modals) {
     if (modal.elements && modal.elements.length > 0) {
-      const modalName = modal.modalName || modal.triggerElement || 'modal';
+      // Sanitize modal name to prevent code injection
+      const rawModalName = modal.modalName || modal.triggerElement || 'modal';
+      const modalName = sanitizeJsIdentifier(rawModalName);
       code += `    // Modal: ${modalName}\n`;
       code += `    this.${modalName} = {\n`;
       code += `      container: page.locator('${SELECTORS.MODAL}'),\n`;
@@ -258,19 +263,21 @@ function generateModalMethods(modals: ModalData[]): string {
 
   for (const modal of modals) {
     if (modal.modalName) {
+      // Sanitize modal name to prevent code injection
+      const modalName = sanitizeJsIdentifier(modal.modalName);
       code += `  /**
-   * Open modal ${modal.modalName}
+   * Open modal ${modalName}
    */
-  async open${capitalize(modal.modalName)}() {
-    await this.${modal.modalName}.container.waitFor();
+  async open${capitalize(modalName)}() {
+    await this.${modalName}.container.waitFor();
   }
 
   /**
-   * Close modal ${modal.modalName}
+   * Close modal ${modalName}
    */
-  async close${capitalize(modal.modalName)}() {
+  async close${capitalize(modalName)}() {
     await this.page.keyboard.press('Escape');
-    await this.${modal.modalName}.container.waitFor({ state: 'hidden' });
+    await this.${modalName}.container.waitFor({ state: 'hidden' });
   }
 
 `;
@@ -312,6 +319,15 @@ export function generateIndexFile(classNames: string[], outputDir: string, ext =
 
 // Helper functions
 
+/**
+ * Convert URL path to PascalCase class name
+ * @param urlPath - URL path (e.g., '/users/settings')
+ * @returns PascalCase class name with 'Page' suffix (e.g., 'UsersSettingsPage')
+ * @example
+ *   pathToClassName('/') => 'HomePage'
+ *   pathToClassName('/dashboard') => 'DashboardPage'
+ *   pathToClassName('/users/profile') => 'UsersProfilePage'
+ */
 function pathToClassName(urlPath: string): string {
   if (!urlPath || urlPath === '/') return 'HomePage';
 
