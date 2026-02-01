@@ -5,8 +5,9 @@ import ora from 'ora';
 import { config } from '../config.js';
 import { createBrowser, login, getPageHtml, findAndClickModals } from '../lib/crawler.js';
 import { analyzeHtml, analyzeModalContent } from '../lib/ai-client.js';
+import type { ScanOptions, PageInfo, Decisions, FullScanResult } from '../types.js';
 
-export async function scanCommand(options) {
+export async function scanCommand(options: ScanOptions): Promise<void> {
   const framework = options.framework || config.framework || 'generic';
 
   console.log(chalk.blue('\n🤖 Spouštím AI scanner...\n'));
@@ -20,11 +21,11 @@ export async function scanCommand(options) {
     process.exit(1);
   }
 
-  let sitemap = JSON.parse(fs.readFileSync(sitemapPath, 'utf-8'));
+  let sitemap: PageInfo[] = JSON.parse(fs.readFileSync(sitemapPath, 'utf-8'));
 
   // Filtruj na konkrétní stránku pokud je zadána
   if (options.page) {
-    sitemap = sitemap.filter((p) => p.path === options.page || p.path.includes(options.page));
+    sitemap = sitemap.filter((p) => p.path === options.page || p.path.includes(options.page!));
 
     if (sitemap.length === 0) {
       console.error(chalk.red(`Stránka "${options.page}" nebyla nalezena v sitemap.`));
@@ -37,8 +38,8 @@ export async function scanCommand(options) {
   const spinner = ora('Spouštím prohlížeč').start();
   const { browser, page } = await createBrowser(true);
 
-  const scanResults = [];
-  const decisions = {};
+  const scanResults: FullScanResult[] = [];
+  const decisions: Decisions = {};
 
   try {
     // Login
@@ -64,7 +65,7 @@ export async function scanCommand(options) {
         // AI analýza
         spinner.text = `[${i + 1}/${sitemap.length}] AI analyzuje: ${pageInfo.path}`;
         const analysis = await analyzeHtml(html, pageInfo.path, {
-          retries: parseInt(options.retry) || 3,
+          retries: parseInt(options.retry || '3'),
           framework,
         });
 
@@ -88,8 +89,9 @@ export async function scanCommand(options) {
                 analysis.modals = analysis.modals || [];
                 analysis.modals.push({
                   triggerElement: modal.trigger,
+                  expectedContent: modalAnalysis.purpose,
                   ...modalAnalysis,
-                });
+                } as any);
               }
             }
           }
@@ -116,7 +118,7 @@ export async function scanCommand(options) {
         spinner.succeed(`[${i + 1}/${sitemap.length}] ${pageInfo.path} - ${analysis.elements?.length || 0} elementů`);
 
       } catch (error) {
-        spinner.warn(`Chyba na ${pageInfo.path}: ${error.message}`);
+        spinner.warn(`Chyba na ${pageInfo.path}: ${(error as Error).message}`);
       }
     }
 

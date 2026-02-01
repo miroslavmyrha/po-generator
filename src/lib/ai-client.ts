@@ -1,9 +1,10 @@
 import OpenAI from 'openai';
 import { config } from '../config.js';
+import type { ScanResult, ModalAnalysis, AnalyzeOptions, Framework } from '../types.js';
 
-let client = null;
+let client: OpenAI | null = null;
 
-function getClient() {
+function getClient(): OpenAI {
   if (!client) {
     client = new OpenAI({
       baseURL: config.ai.baseUrl,
@@ -14,7 +15,7 @@ function getClient() {
 }
 
 // Framework-specific prompts
-const FRAMEWORK_PROMPTS = {
+const FRAMEWORK_PROMPTS: Record<string, string> = {
   vuetify: `
 VUETIFY 3 KOMPONENTY:
 - v-btn → .v-btn
@@ -144,12 +145,16 @@ VRAŤ POUZE VALIDNÍ JSON (žádný markdown, žádný text navíc):
 }
 `;
 
-function getScannerPrompt(framework = 'generic') {
+function getScannerPrompt(framework: Framework = 'generic'): string {
   const frameworkPrompt = FRAMEWORK_PROMPTS[framework] || FRAMEWORK_PROMPTS.generic;
   return BASE_PROMPT + frameworkPrompt + OUTPUT_FORMAT;
 }
 
-export async function analyzeHtml(html, url, options = {}) {
+export async function analyzeHtml(
+  html: string,
+  url: string,
+  options: AnalyzeOptions = {}
+): Promise<ScanResult | null> {
   const { retries = 3, framework = 'generic' } = options;
 
   // Vyčisti HTML
@@ -159,7 +164,7 @@ export async function analyzeHtml(html, url, options = {}) {
     .replace(/<!--[\s\S]*?-->/g, '')
     .substring(0, 50000);
 
-  const prompt = getScannerPrompt(framework);
+  const prompt = getScannerPrompt(framework as Framework);
 
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
@@ -181,28 +186,34 @@ export async function analyzeHtml(html, url, options = {}) {
       const content = response.choices[0].message.content;
 
       // Extrahuj JSON
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      const jsonMatch = content?.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         throw new Error('AI nevrátila validní JSON');
       }
 
-      return JSON.parse(jsonMatch[0]);
+      return JSON.parse(jsonMatch[0]) as ScanResult;
     } catch (error) {
       if (attempt === retries) {
-        console.error(`AI analýza selhala po ${retries} pokusech:`, error.message);
+        console.error(`AI analýza selhala po ${retries} pokusech:`, (error as Error).message);
         return null;
       }
       console.warn(`Pokus ${attempt}/${retries} selhal, zkouším znovu...`);
       await new Promise((r) => setTimeout(r, 1000 * attempt));
     }
   }
+
+  return null;
 }
 
-export async function analyzeModalContent(html, triggerName, options = {}) {
+export async function analyzeModalContent(
+  html: string,
+  triggerName: string,
+  options: AnalyzeOptions = {}
+): Promise<ModalAnalysis | null> {
   const { retries = 3, framework = 'generic' } = options;
   const cleanHtml = html.substring(0, 20000);
 
-  const modalSelectors = {
+  const modalSelectors: Record<string, string> = {
     vuetify: '.v-dialog, .v-overlay',
     symfony: '.modal, .modal-dialog, [data-controller*="modal"]',
     generic: '.modal, [role="dialog"], dialog, .overlay'
@@ -213,7 +224,7 @@ Analyzuj obsah modálního okna (dialog/drawer).
 Modal byl otevřen kliknutím na: "${triggerName}"
 
 Framework: ${framework}
-Modal kontejner: ${modalSelectors[framework] || modalSelectors.generic}
+Modal kontejner: ${modalSelectors[framework as string] || modalSelectors.generic}
 
 VRAŤ POUZE VALIDNÍ JSON:
 {
@@ -247,15 +258,17 @@ ${cleanHtml}
       });
 
       const content = response.choices[0].message.content;
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      const jsonMatch = content?.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('Invalid JSON');
 
-      return JSON.parse(jsonMatch[0]);
+      return JSON.parse(jsonMatch[0]) as ModalAnalysis;
     } catch (error) {
       if (attempt === retries) return null;
       await new Promise((r) => setTimeout(r, 1000 * attempt));
     }
   }
+
+  return null;
 }
 
-export const SUPPORTED_FRAMEWORKS = ['vuetify', 'symfony', 'generic'];
+export const SUPPORTED_FRAMEWORKS: Framework[] = ['vuetify', 'symfony', 'generic'];

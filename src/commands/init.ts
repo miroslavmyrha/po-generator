@@ -3,7 +3,7 @@ import path from 'path';
 import readline from 'readline';
 import chalk from 'chalk';
 
-export async function initCommand() {
+export async function initCommand(): Promise<void> {
   console.log(chalk.blue('\n🔧 Inicializace po-generator\n'));
 
   const rl = readline.createInterface({
@@ -11,7 +11,7 @@ export async function initCommand() {
     output: process.stdout,
   });
 
-  const question = (prompt, defaultValue = '') =>
+  const question = (prompt: string, defaultValue = ''): Promise<string> =>
     new Promise((resolve) => {
       const displayPrompt = defaultValue
         ? `${prompt} (${chalk.gray(defaultValue)}): `
@@ -21,13 +21,16 @@ export async function initCommand() {
 
   console.log(chalk.gray('Odpověz na otázky pro vytvoření konfigurace.\n'));
 
+  // Framework
+  const framework = await question('Framework (vuetify/symfony/generic)', 'generic');
+
   // Základní URL
   const baseUrl = await question('URL aplikace', 'http://localhost:5173');
 
   // Auth
   const authEnabled = (await question('Potřebuje login? (y/n)', 'y')).toLowerCase() === 'y';
 
-  let authConfig = {};
+  let authConfig: Record<string, string> = {};
   if (authEnabled) {
     console.log(chalk.gray('\nKonfigurace loginu:'));
     authConfig = {
@@ -35,9 +38,6 @@ export async function initCommand() {
       username: await question('  Username/Email'),
       password: await question('  Password'),
       successUrl: await question('  URL po přihlášení', '/dashboard'),
-      fieldUsername: await question('  Selector pro username', ".v-text-field:has-text('Email') input"),
-      fieldPassword: await question('  Selector pro password', ".v-text-field:has-text('Password') input"),
-      fieldSubmit: await question('  Selector pro submit', ".v-btn:has-text('Login')"),
     };
   }
 
@@ -56,6 +56,9 @@ export async function initCommand() {
   let envContent = `# Aplikace
 PO_GEN_BASE_URL=${baseUrl}
 
+# Framework: vuetify | symfony | generic
+PO_GEN_FRAMEWORK=${framework}
+
 # Login
 PO_GEN_AUTH_ENABLED=${authEnabled}
 `;
@@ -65,11 +68,6 @@ PO_GEN_AUTH_ENABLED=${authEnabled}
 PO_GEN_USERNAME=${authConfig.username}
 PO_GEN_PASSWORD=${authConfig.password}
 PO_GEN_SUCCESS_URL=${authConfig.successUrl}
-
-# Login selektory
-PO_GEN_FIELD_USERNAME=${authConfig.fieldUsername}
-PO_GEN_FIELD_PASSWORD=${authConfig.fieldPassword}
-PO_GEN_FIELD_SUBMIT=${authConfig.fieldSubmit}
 `;
   }
 

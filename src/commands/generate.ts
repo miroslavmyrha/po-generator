@@ -4,8 +4,15 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { config } from '../config.js';
 import { generatePageObject, savePageObject, generateIndexFile } from '../lib/generator.js';
+import type { GenerateOptions, Decisions } from '../types.js';
 
-export async function generateCommand(options) {
+interface GeneratedInfo {
+  className: string;
+  filePath: string;
+  path: string;
+}
+
+export async function generateCommand(options: GenerateOptions): Promise<void> {
   console.log(chalk.blue('\n📝 Generuji Page Objects...\n'));
 
   const outputDir = options.output || path.join(config.output.dir, 'pages');
@@ -20,12 +27,12 @@ export async function generateCommand(options) {
     process.exit(1);
   }
 
-  const decisions = JSON.parse(fs.readFileSync(decisionsPath, 'utf-8'));
+  const decisions: Decisions = JSON.parse(fs.readFileSync(decisionsPath, 'utf-8'));
 
   // Filtruj pouze page_object
   const toGenerate = Object.entries(decisions)
     .filter(([, d]) => d.decision === 'page_object')
-    .map(([path]) => path);
+    .map(([pagePath]) => pagePath);
 
   if (toGenerate.length === 0) {
     console.log(chalk.yellow('Žádné stránky k generování.'));
@@ -36,7 +43,7 @@ export async function generateCommand(options) {
   console.log(chalk.gray(`Generuji ${toGenerate.length} Page Objects...\n`));
 
   const spinner = ora('Generuji...').start();
-  const generated = [];
+  const generated: GeneratedInfo[] = [];
   const scannedDir = path.join(config.output.dir, 'scanned');
 
   for (const pagePath of toGenerate) {
@@ -80,7 +87,7 @@ export async function generateCommand(options) {
       spinner.succeed(`${className} → ${path.basename(filePath)}`);
 
     } catch (error) {
-      spinner.warn(`Chyba při generování ${pagePath}: ${error.message}`);
+      spinner.warn(`Chyba při generování ${pagePath}: ${(error as Error).message}`);
     }
   }
 

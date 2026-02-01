@@ -3,8 +3,9 @@ import { crawlCommand } from './crawl.js';
 import { scanCommand } from './scan.js';
 import { reviewCommand } from './review.js';
 import { generateCommand } from './generate.js';
+import type { RunOptions } from '../types.js';
 
-export async function runCommand(options) {
+export async function runCommand(options: RunOptions): Promise<void> {
   console.log(chalk.blue.bold('\n🚀 Spouštím kompletní workflow...\n'));
   console.log(chalk.gray('─'.repeat(60)));
 
@@ -35,7 +36,7 @@ export async function runCommand(options) {
     console.log(chalk.green.bold(`\n✅ Workflow dokončen za ${elapsed}s\n`));
 
   } catch (error) {
-    console.error(chalk.red(`\n❌ Workflow selhal: ${error.message}`));
+    console.error(chalk.red(`\n❌ Workflow selhal: ${(error as Error).message}`));
     process.exit(1);
   }
 }

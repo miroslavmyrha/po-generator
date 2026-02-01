@@ -3,8 +3,9 @@ import path from 'path';
 import readline from 'readline';
 import chalk from 'chalk';
 import { config } from '../config.js';
+import type { Decisions } from '../types.js';
 
-export async function reviewCommand() {
+export async function reviewCommand(): Promise<void> {
   console.log(chalk.blue('\n🔍 Interaktivní review rozhodnutí...\n'));
 
   const decisionsPath = path.join(config.output.dir, 'decisions.json');
@@ -14,7 +15,7 @@ export async function reviewCommand() {
     process.exit(1);
   }
 
-  const decisions = JSON.parse(fs.readFileSync(decisionsPath, 'utf-8'));
+  const decisions: Decisions = JSON.parse(fs.readFileSync(decisionsPath, 'utf-8'));
 
   // Najdi stránky k rozhodnutí
   const toReview = Object.entries(decisions)
@@ -41,7 +42,7 @@ export async function reviewCommand() {
     output: process.stdout,
   });
 
-  const question = (prompt) => new Promise((resolve) => rl.question(prompt, resolve));
+  const question = (prompt: string): Promise<string> => new Promise((resolve) => rl.question(prompt, resolve));
 
   let modified = false;
 

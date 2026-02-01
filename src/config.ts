@@ -1,7 +1,8 @@
 import 'dotenv/config';
+import type { Config, FrameworkDefaults } from './types.js';
 
 // Framework-specific defaults
-const FRAMEWORK_DEFAULTS = {
+export const FRAMEWORK_DEFAULTS: Record<string, FrameworkDefaults> = {
   vuetify: {
     waitForSelector: '.v-application',
     loginFields: {
@@ -31,7 +32,7 @@ const FRAMEWORK_DEFAULTS = {
 const framework = process.env.PO_GEN_FRAMEWORK || 'generic';
 const frameworkDefaults = FRAMEWORK_DEFAULTS[framework] || FRAMEWORK_DEFAULTS.generic;
 
-export const config = {
+export const config: Config = {
   framework,
 
   baseUrl: process.env.PO_GEN_BASE_URL || 'http://localhost:5173',
@@ -69,10 +70,8 @@ export const config = {
   },
 };
 
-export { FRAMEWORK_DEFAULTS };
-
-export function validateConfig() {
-  const errors = [];
+export function validateConfig(): string[] {
+  const errors: string[] = [];
 
   if (!config.baseUrl) errors.push('PO_GEN_BASE_URL is required');
   if (!config.ai.apiKey) errors.push('PO_GEN_AI_KEY is required');

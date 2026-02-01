@@ -4,8 +4,9 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { config } from '../config.js';
 import { createBrowser, login, crawlUrls } from '../lib/crawler.js';
+import type { CrawlOptions, PageInfo } from '../types.js';
 
-export async function crawlCommand(options) {
+export async function crawlCommand(options: CrawlOptions): Promise<void> {
   console.log(chalk.blue('\n🔍 Spouštím crawler...\n'));
 
   const spinner = ora('Spouštím prohlížeč').start();
@@ -30,7 +31,7 @@ export async function crawlCommand(options) {
     spinner.start('Procházím aplikaci...');
     let pageCount = 0;
 
-    const sitemap = await crawlUrls(page, async (pageInfo) => {
+    const sitemap = await crawlUrls(page, async (pageInfo: PageInfo) => {
       pageCount++;
       spinner.text = `Procházím: ${pageInfo.path} (${pageCount} stránek)`;
     });

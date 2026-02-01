@@ -1,12 +1,22 @@
 import fs from 'fs';
 import path from 'path';
 import { config } from '../config.js';
+import type { ScanResult, ModalAnalysis, GeneratedPageObject, GeneratorOptions, ElementInfo } from '../types.js';
 
-export function generatePageObject(pageData, options = {}) {
+interface PageData {
+  pageAnalysis: {
+    url: string;
+    purpose: string;
+    suggestedClassName?: string;
+  };
+  elements: ElementInfo[];
+  modals: (ModalAnalysis & { triggerElement?: string })[];
+}
+
+export function generatePageObject(pageData: PageData, options: GeneratorOptions = {}): GeneratedPageObject {
   const { typescript = false } = options;
   const ext = typescript ? 'ts' : 'js';
   const typeAnnotation = typescript ? ': Page' : '';
-  const locatorType = typescript ? ': Locator' : '';
 
   const className = pageData.pageAnalysis.suggestedClassName || pathToClassName(pageData.pageAnalysis.url);
 
@@ -26,6 +36,12 @@ export function generatePageObject(pageData, options = {}) {
  */
 export class ${className} {
 `;
+
+  // Type declarations for TypeScript
+  if (typescript) {
+    code += `  page: Page;\n`;
+    code += `  url: string;\n\n`;
+  }
 
   // Constructor
   code += `  /**
@@ -50,11 +66,11 @@ export class ${className} {
       if (modal.elements && modal.elements.length > 0) {
         code += `    // Modal: ${modal.modalName || modal.triggerElement}\n`;
         code += `    this.${modal.modalName || 'modal'} = {\n`;
-        code += `      container: page.locator('.v-dialog, .v-overlay__content'),\n`;
+        code += `      container: page.locator('.v-dialog, .v-overlay__content, .modal, [role="dialog"]'),\n`;
 
         for (const el of modal.elements) {
           code += `      /** ${el.description} */\n`;
-          code += `      ${el.name}: page.locator('.v-dialog ${escapeSelector(el.selector)}, .v-overlay__content ${escapeSelector(el.selector)}'),\n`;
+          code += `      ${el.name}: page.locator('.v-dialog ${escapeSelector(el.selector)}, .v-overlay__content ${escapeSelector(el.selector)}, .modal ${escapeSelector(el.selector)}'),\n`;
         }
 
         if (modal.actions) {
@@ -81,7 +97,7 @@ export class ${className} {
   return { code, className, ext };
 }
 
-function generateMethods(pageData, className) {
+function generateMethods(pageData: PageData, className: string): string {
   let methods = '';
 
   // goto method
@@ -98,7 +114,7 @@ function generateMethods(pageData, className) {
    * Čekání na načtení stránky
    */
   async waitForLoad() {
-    await this.page.waitForSelector('.v-application');
+    await this.page.waitForSelector('body');
   }\n\n`;
 
   if (!pageData.elements) return methods;
@@ -110,7 +126,7 @@ function generateMethods(pageData, className) {
    * Vyplní ${el.description}
    * @param {string} value
    */
-  async fill${capitalize(el.name)}(value) {
+  async fill${capitalize(el.name)}(value: string) {
     await this.${el.name}.locator('input, textarea').fill(value);
   }\n\n`;
   }
@@ -122,9 +138,9 @@ function generateMethods(pageData, className) {
    * Vybere hodnotu v ${el.description}
    * @param {string} option
    */
-  async select${capitalize(el.name)}(option) {
-    await this.${el.name}.locator('.v-field').click();
-    await this.page.locator('.v-list-item').filter({ hasText: option }).click();
+  async select${capitalize(el.name)}(option: string) {
+    await this.${el.name}.locator('.v-field, .form-select, select').click();
+    await this.page.locator('.v-list-item, .dropdown-item, option').filter({ hasText: option }).click();
   }\n\n`;
   }
 
@@ -149,7 +165,7 @@ function generateMethods(pageData, className) {
    * Otevře modal ${modal.modalName}
    */
   async open${capitalize(modal.modalName)}() {
-    await this.${modal.triggerElement || 'trigger'}.click();
+    // Click trigger to open modal
     await this.${modal.modalName}.container.waitFor();
   }\n\n`;
 
@@ -167,7 +183,7 @@ function generateMethods(pageData, className) {
   return methods;
 }
 
-export function savePageObject(pageObjectCode, className, outputDir, ext = 'js') {
+export function savePageObject(pageObjectCode: string, className: string, outputDir: string, ext = 'js'): string {
   const fileName = `${camelToKebab(className)}.${ext}`;
   const filePath = path.join(outputDir, fileName);
 
@@ -177,7 +193,7 @@ export function savePageObject(pageObjectCode, className, outputDir, ext = 'js')
   return filePath;
 }
 
-export function generateIndexFile(classNames, outputDir, ext = 'js') {
+export function generateIndexFile(classNames: string[], outputDir: string, ext = 'js'): string {
   let code = '// Auto-generated index file\n\n';
 
   for (const className of classNames) {
@@ -192,7 +208,7 @@ export function generateIndexFile(classNames, outputDir, ext = 'js') {
 }
 
 // Helpers
-function pathToClassName(urlPath) {
+function pathToClassName(urlPath: string): string {
   if (!urlPath || urlPath === '/') return 'HomePage';
 
   return urlPath
@@ -202,15 +218,15 @@ function pathToClassName(urlPath) {
     .join('') + 'Page';
 }
 
-function capitalize(str) {
+function capitalize(str: string): string {
   if (!str) return '';
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
-function camelToKebab(str) {
+function camelToKebab(str: string): string {
   return str.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
 }
 
-function escapeSelector(selector) {
+function escapeSelector(selector: string): string {
   return selector.replace(/'/g, "\\'");
 }

@@ -1,14 +1,15 @@
-import { chromium } from 'playwright';
+import { chromium, Page } from 'playwright';
 import { config } from '../config.js';
+import type { PageInfo, BrowserInstance, ModalContent, ElementInfo } from '../types.js';
 
-export async function createBrowser(headless = true) {
+export async function createBrowser(headless = true): Promise<BrowserInstance> {
   const browser = await chromium.launch({ headless });
   const context = await browser.newContext();
   const page = await context.newPage();
   return { browser, context, page };
 }
 
-export async function login(page) {
+export async function login(page: Page): Promise<boolean> {
   if (!config.auth.enabled) return true;
 
   const loginUrl = config.baseUrl + config.auth.loginUrl;
@@ -16,13 +17,13 @@ export async function login(page) {
 
   try {
     // Vyplň username
-    await page.locator(config.auth.fields.username).fill(config.auth.credentials.username);
+    await page.locator(config.auth.fields.username).first().fill(config.auth.credentials.username || '');
 
     // Vyplň password
-    await page.locator(config.auth.fields.password).fill(config.auth.credentials.password);
+    await page.locator(config.auth.fields.password).first().fill(config.auth.credentials.password || '');
 
     // Submit
-    await page.locator(config.auth.fields.submit).click();
+    await page.locator(config.auth.fields.submit).first().click();
 
     // Čekej na úspěšný login
     await page.waitForURL((url) => url.pathname.includes(config.auth.successUrl), {
@@ -31,18 +32,21 @@ export async function login(page) {
 
     return true;
   } catch (error) {
-    console.error('Login selhal:', error.message);
+    console.error('Login selhal:', (error as Error).message);
     return false;
   }
 }
 
-export async function crawlUrls(page, onPageFound) {
-  const visited = new Set();
-  const queue = [config.baseUrl];
-  const sitemap = [];
+export async function crawlUrls(
+  page: Page,
+  onPageFound?: (pageInfo: PageInfo, page: Page) => Promise<void>
+): Promise<PageInfo[]> {
+  const visited = new Set<string>();
+  const queue: string[] = [config.baseUrl];
+  const sitemap: PageInfo[] = [];
 
   while (queue.length > 0) {
-    const url = queue.shift();
+    const url = queue.shift()!;
     const path = new URL(url).pathname;
 
     // Přeskoč již navštívené
@@ -56,7 +60,7 @@ export async function crawlUrls(page, onPageFound) {
     try {
       await page.goto(url, { waitUntil: 'networkidle', timeout: config.crawler.timeout });
 
-      // Čekej na Vuetify
+      // Čekej na framework selector
       await page
         .waitForSelector(config.crawler.waitForSelector, {
           timeout: config.crawler.timeout,
@@ -69,14 +73,14 @@ export async function crawlUrls(page, onPageFound) {
           title: document.title,
           hasForm: document.querySelectorAll('form, .v-form').length > 0,
           hasTable: document.querySelectorAll('.v-data-table, table').length > 0,
-          hasCards: document.querySelectorAll('.v-card').length > 0,
+          hasCards: document.querySelectorAll('.v-card, .card').length > 0,
           interactiveCount:
-            document.querySelectorAll('.v-btn, .v-text-field, .v-select, .v-checkbox, a[href]')
+            document.querySelectorAll('.v-btn, .btn, button, .v-text-field, .v-select, input, select, textarea, a[href]')
               .length,
         };
       });
 
-      const entry = {
+      const entry: PageInfo = {
         url,
         path,
         ...pageInfo,
@@ -90,10 +94,10 @@ export async function crawlUrls(page, onPageFound) {
       }
 
       // Najdi další odkazy
-      const links = await page.evaluate((baseUrl) => {
+      const links = await page.evaluate((baseUrl: string) => {
         const anchors = document.querySelectorAll('a[href]');
         return [...anchors]
-          .map((a) => a.href)
+          .map((a) => (a as HTMLAnchorElement).href)
           .filter((href) => href.startsWith(baseUrl))
           .map((href) => href.split('#')[0].split('?')[0]); // Odstraň hash a query
       }, config.baseUrl);
@@ -106,19 +110,22 @@ export async function crawlUrls(page, onPageFound) {
         }
       }
     } catch (error) {
-      console.error(`Chyba na ${path}:`, error.message);
+      console.error(`Chyba na ${path}:`, (error as Error).message);
     }
   }
 
   return sitemap;
 }
 
-export async function getPageHtml(page) {
+export async function getPageHtml(page: Page): Promise<string> {
   return page.content();
 }
 
-export async function findAndClickModals(page, triggers) {
-  const modalContents = [];
+export async function findAndClickModals(
+  page: Page,
+  triggers: ElementInfo[]
+): Promise<ModalContent[]> {
+  const modalContents: ModalContent[] = [];
 
   for (const trigger of triggers) {
     try {
@@ -126,7 +133,7 @@ export async function findAndClickModals(page, triggers) {
       await page.locator(trigger.selector).first().click();
 
       // Čekej na modal
-      const modalSelector = '.v-dialog, .v-overlay__content .v-card, .v-navigation-drawer--active';
+      const modalSelector = '.v-dialog, .v-overlay__content .v-card, .v-navigation-drawer--active, .modal, [role="dialog"]';
       await page.waitForSelector(modalSelector, { timeout: 2000 });
 
       // Získej obsah
