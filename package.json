@@ -1,0 +1,28 @@
+{
+  "name": "po-generator",
+  "version": "1.0.0",
+  "description": "Vuetify Page Object Generator s AI",
+  "type": "module",
+  "bin": {
+    "po-gen": "./bin/po-gen.js"
+  },
+  "scripts": {
+    "crawl": "node bin/po-gen.js crawl",
+    "scan": "node bin/po-gen.js scan",
+    "generate": "node bin/po-gen.js generate",
+    "review": "node bin/po-gen.js review",
+    "run": "node bin/po-gen.js run",
+    "init": "node bin/po-gen.js init"
+  },
+  "dependencies": {
+    "commander": "^12.0.0",
+    "dotenv": "^16.3.1",
+    "openai": "^4.20.0",
+    "playwright": "^1.40.0",
+    "chalk": "^5.3.0",
+    "ora": "^8.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
