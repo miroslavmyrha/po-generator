@@ -23,7 +23,7 @@ export async function scanCommand(options: ScanOptions): Promise<void> {
   const spinner = ora('Starting browser').start();
 
   try {
-    await performLogin(spinner);
+    await performLogin(page, spinner);
     const { results, decisions } = await scanAllPages(page, sitemap, framework, spinner, options);
     saveResults(results, decisions);
     printSummary(decisions);
@@ -59,11 +59,10 @@ function filterSitemap(sitemap: PageInfo[], pageFilter: string): PageInfo[] {
 
 // Authentication
 
-async function performLogin(spinner: Ora): Promise<void> {
+async function performLogin(page: import('playwright').Page, spinner: Ora): Promise<void> {
   if (!config.auth.enabled) return;
 
   spinner.text = 'Logging in...';
-  const { page } = await createBrowser(true);
   const success = await login(page);
 
   if (success) {
@@ -139,7 +138,7 @@ async function scanSinglePage(
     spinner.text = `${progress} AI analyzing: ${pageInfo.path}`;
 
     const analysis = await analyzeHtml(html, pageInfo.path, {
-      retries: parseInt(options.retry || '3'),
+      retries: parseInt(options.retry || '3', 10),
       framework,
     });
 
@@ -237,4 +236,3 @@ function printSummary(decisions: Decisions): void {
   }
 }
 
-// countDecisions imported from data-loader.ts

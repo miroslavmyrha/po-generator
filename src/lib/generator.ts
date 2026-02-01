@@ -138,7 +138,8 @@ function generateModalDeclarations(modals: ModalData[]): string {
       for (const el of modal.elements) {
         const selector = escapeSelector(el.selector);
         code += `      /** ${el.description} */\n`;
-        code += `      ${el.name}: page.locator('.v-dialog ${selector}, .v-overlay__content ${selector}, .modal ${selector}'),\n`;
+        // Use MODAL_CONTENT selector pattern for framework compatibility
+        code += `      ${el.name}: page.locator('${SELECTORS.MODAL_CONTENT.split(', ').map(m => `${m} ${selector}`).join(', ')}'),\n`;
       }
 
       if (modal.actions) {
@@ -220,8 +221,8 @@ function generateSelectMethods(elements: ElementInfo[]): string {
    * @param {string} option
    */
   async select${capitalize(el.name)}(option: string) {
-    await this.${el.name}.locator('.v-field, .form-select, select').click();
-    await this.page.locator('.v-list-item, .dropdown-item, option').filter({ hasText: option }).click();
+    await this.${el.name}.locator('${SELECTORS.FIELD_TRIGGER}').click();
+    await this.page.locator('${SELECTORS.DROPDOWN_ITEM}').filter({ hasText: option }).click();
   }
 
 `;

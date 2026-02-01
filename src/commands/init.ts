@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import readline from 'readline';
 import { SUCCESS } from '../constants.js';
 import { log } from '../lib/logger.js';
+import { createReadlineInterface, createQuestionFn } from '../lib/utils.js';
 
 interface InitConfig {
   framework: string;
@@ -29,7 +29,7 @@ export async function initCommand(): Promise<void> {
   log.info('\n🔧 Initializing po-generator\n');
 
   const rl = createReadlineInterface();
-  const question = createQuestionFn(rl);
+  const question = createQuestionFn(rl, true); // Show default values in prompts
 
   log.dim('Answer the questions to create configuration.\n');
 
@@ -40,21 +40,6 @@ export async function initCommand(): Promise<void> {
   createOutputDirectory(config.outputDir);
   printProjectStructure(config.outputDir);
   printNextSteps();
-}
-
-function createReadlineInterface(): readline.Interface {
-  return readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-}
-
-function createQuestionFn(rl: readline.Interface) {
-  return (prompt: string, defaultValue = ''): Promise<string> =>
-    new Promise((resolve) => {
-      const displayPrompt = defaultValue ? `${prompt} (${defaultValue}): ` : `${prompt}: `;
-      rl.question(displayPrompt, (answer) => resolve(answer || defaultValue));
-    });
 }
 
 async function collectConfiguration(

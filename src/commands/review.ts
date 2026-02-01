@@ -1,4 +1,3 @@
-import readline from 'readline';
 import { SUCCESS, MESSAGES } from '../constants.js';
 import { log } from '../lib/logger.js';
 import {
@@ -7,6 +6,7 @@ import {
   countDecisions,
   findPagesToReview,
 } from '../lib/data-loader.js';
+import { createReadlineInterface, createQuestionFn } from '../lib/utils.js';
 import type { Decisions } from '../types.js';
 
 export async function reviewCommand(): Promise<void> {
@@ -76,17 +76,6 @@ async function interactiveReview(
 
   rl.close();
   return modified;
-}
-
-function createReadlineInterface(): readline.Interface {
-  return readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-}
-
-function createQuestionFn(rl: readline.Interface): (prompt: string) => Promise<string> {
-  return (prompt: string) => new Promise((resolve) => rl.question(prompt, resolve));
 }
 
 function printPageInfo(pagePath: string, decision: Decisions[string]): void {

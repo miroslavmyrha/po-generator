@@ -79,6 +79,11 @@ export const SELECTORS = {
   FORM: 'form, .v-form',
   TABLE: '.v-data-table, table',
   CARD: '.v-card, .card',
+  // Framework-specific modal content selectors for generated code
+  MODAL_CONTENT: '.v-dialog, .v-overlay__content, .modal',
+  // Form field selectors for generated methods
+  FIELD_TRIGGER: '.v-field, .form-select, select',
+  DROPDOWN_ITEM: '.v-list-item, .dropdown-item, option',
 } as const;
 
 // Supported frameworks

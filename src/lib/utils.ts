@@ -1,3 +1,5 @@
+import readline from 'readline';
+
 /**
  * Shared utility functions
  */
@@ -8,6 +10,34 @@
  */
 export function pathToFileName(urlPath: string): string {
   return urlPath.replace(/\//g, '_').replace(/^_/, '') || 'home';
+}
+
+/**
+ * Create readline interface for interactive prompts
+ */
+export function createReadlineInterface(): readline.Interface {
+  return readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+}
+
+/**
+ * Create a promisified question function from readline interface
+ * @param rl - readline interface
+ * @param showDefault - whether to show default value in prompt
+ */
+export function createQuestionFn(
+  rl: readline.Interface,
+  showDefault = false
+): (prompt: string, defaultValue?: string) => Promise<string> {
+  return (prompt: string, defaultValue = ''): Promise<string> =>
+    new Promise((resolve) => {
+      const displayPrompt = showDefault && defaultValue
+        ? `${prompt} (${defaultValue}): `
+        : `${prompt}: `;
+      rl.question(displayPrompt, (answer) => resolve(answer || defaultValue));
+    });
 }
 
 /**
