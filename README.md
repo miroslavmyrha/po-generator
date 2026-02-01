@@ -52,7 +52,7 @@ cp .env.example .env
 Or run the interactive setup:
 
 ```bash
-npm run init
+po-gen init
 ```
 
 ### Environment Variables
