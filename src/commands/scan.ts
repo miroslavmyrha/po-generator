@@ -12,6 +12,16 @@ import { AppError } from '../types.js';
 import type { ScanOptions, PageInfo, Decisions, FullScanResult, ScanResult, ModalAnalysis } from '../types.js';
 import type { Framework } from '../constants.js';
 
+/**
+ * Scan context - groups related parameters for cleaner function signatures
+ */
+interface ScanContext {
+  page: import('playwright').Page;
+  framework: Framework;
+  options: ScanOptions;
+  spinner: Ora;
+}
+
 export async function scanCommand(options: ScanOptions): Promise<void> {
   const framework = (options.framework || config.framework || 'generic') as Framework;
 
@@ -22,9 +32,11 @@ export async function scanCommand(options: ScanOptions): Promise<void> {
   const { browser, page } = await createBrowser(true);
   const spinner = ora('Starting browser').start();
 
+  const context: ScanContext = { page, framework, options, spinner };
+
   try {
     await performLogin(page, spinner);
-    const { results, decisions } = await scanAllPages(page, sitemap, framework, spinner, options);
+    const { results, decisions } = await scanAllPages(context, sitemap);
     saveResults(results, decisions);
     printSummary(decisions);
   } finally {
@@ -80,13 +92,7 @@ interface ScanResults {
   decisions: Decisions;
 }
 
-async function scanAllPages(
-  page: import('playwright').Page,
-  sitemap: PageInfo[],
-  framework: Framework,
-  spinner: Ora,
-  options: ScanOptions
-): Promise<ScanResults> {
+async function scanAllPages(context: ScanContext, sitemap: PageInfo[]): Promise<ScanResults> {
   const results: FullScanResult[] = [];
   const decisions: Decisions = {};
 
@@ -94,16 +100,16 @@ async function scanAllPages(
     const pageInfo = sitemap[i];
     const progress = `[${i + 1}/${sitemap.length}]`;
 
-    spinner.start(`${progress} Scanning: ${pageInfo.path}`);
+    context.spinner.start(`${progress} Scanning: ${pageInfo.path}`);
 
-    const scanResult = await scanSinglePage(page, pageInfo, framework, options, spinner, progress);
+    const scanResult = await scanSinglePage(context, pageInfo, progress);
 
     if (scanResult) {
       results.push({ ...pageInfo, analysis: scanResult.analysis });
       decisions[pageInfo.path] = scanResult.decision;
-      spinner.succeed(`${progress} ${pageInfo.path} - ${scanResult.analysis.elements?.length || 0} elements`);
+      context.spinner.succeed(`${progress} ${pageInfo.path} - ${scanResult.analysis.elements?.length || 0} elements`);
     } else {
-      spinner.warn(`${progress} ${pageInfo.path} - scan failed`);
+      context.spinner.warn(`${progress} ${pageInfo.path} - scan failed`);
     }
   }
 
@@ -116,13 +122,12 @@ interface SingleScanResult {
 }
 
 async function scanSinglePage(
-  page: import('playwright').Page,
+  context: ScanContext,
   pageInfo: PageInfo,
-  framework: Framework,
-  options: ScanOptions,
-  spinner: Ora,
   progress: string
 ): Promise<SingleScanResult | null> {
+  const { page, framework, options, spinner } = context;
+
   try {
     await page.goto(pageInfo.url, { waitUntil: 'networkidle' });
 
@@ -145,7 +150,7 @@ async function scanSinglePage(
     if (!analysis) return null;
 
     // Scan modals if any triggers found
-    const analysisWithModals = await scanModals(page, analysis, framework, spinner, progress, pageInfo.path);
+    const analysisWithModals = await scanModals(context, analysis, progress, pageInfo.path);
 
     const decision = createDecision(analysisWithModals);
 
@@ -157,13 +162,13 @@ async function scanSinglePage(
 }
 
 async function scanModals(
-  page: import('playwright').Page,
+  context: ScanContext,
   analysis: ScanResult,
-  framework: Framework,
-  spinner: Ora,
   progress: string,
   pagePath: string
 ): Promise<ScanResult> {
+  const { page, framework, spinner } = context;
+
   if (!analysis.elements) return analysis;
 
   const modalTriggers = analysis.elements.filter((e) => e.isModalTrigger);
@@ -235,4 +240,3 @@ function printSummary(decisions: Decisions): void {
     log.info('\n💡 Tip: Run "po-gen generate" to create Page Objects.');
   }
 }
-
