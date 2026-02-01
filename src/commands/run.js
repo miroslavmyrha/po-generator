@@ -17,7 +17,7 @@ export async function runCommand(options) {
 
     // 2. Scan
     console.log(chalk.blue('\n📍 Fáze 2: AI Scanning\n'));
-    await scanCommand({ retry: '3' });
+    await scanCommand({ retry: '3', framework: options.framework });
 
     // 3. Review (pokud není přeskočeno)
     if (!options.skipReview) {

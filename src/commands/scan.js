@@ -7,7 +7,10 @@ import { createBrowser, login, getPageHtml, findAndClickModals } from '../lib/cr
 import { analyzeHtml, analyzeModalContent } from '../lib/ai-client.js';
 
 export async function scanCommand(options) {
+  const framework = options.framework || config.framework || 'generic';
+
   console.log(chalk.blue('\n🤖 Spouštím AI scanner...\n'));
+  console.log(chalk.gray(`Framework: ${framework}\n`));
 
   // Načti sitemap
   const sitemapPath = path.join(config.output.dir, 'sitemap.json');
@@ -53,14 +56,17 @@ export async function scanCommand(options) {
       try {
         // Načti stránku
         await page.goto(pageInfo.url, { waitUntil: 'networkidle' });
-        await page.waitForSelector('.v-application', { timeout: 5000 }).catch(() => {});
+        await page.waitForSelector(config.crawler.waitForSelector, { timeout: 5000 }).catch(() => {});
 
         // Získej HTML
         const html = await getPageHtml(page);
 
         // AI analýza
         spinner.text = `[${i + 1}/${sitemap.length}] AI analyzuje: ${pageInfo.path}`;
-        const analysis = await analyzeHtml(html, pageInfo.path, parseInt(options.retry) || 3);
+        const analysis = await analyzeHtml(html, pageInfo.path, {
+          retries: parseInt(options.retry) || 3,
+          framework,
+        });
 
         if (!analysis) {
           spinner.warn(`AI analýza selhala pro ${pageInfo.path}`);
@@ -77,7 +83,7 @@ export async function scanCommand(options) {
 
             // Analyzuj obsah modalů
             for (const modal of modalContents) {
-              const modalAnalysis = await analyzeModalContent(modal.html, modal.trigger);
+              const modalAnalysis = await analyzeModalContent(modal.html, modal.trigger, { framework });
               if (modalAnalysis) {
                 analysis.modals = analysis.modals || [];
                 analysis.modals.push({

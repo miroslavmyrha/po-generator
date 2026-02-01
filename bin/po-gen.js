@@ -14,7 +14,7 @@ const program = new Command();
 
 program
   .name('po-gen')
-  .description('Vuetify Page Object Generator s AI')
+  .description('Page Object Generator s AI (Vuetify, Symfony, generic)')
   .version('1.0.0');
 
 // Init - vytvoří .env soubor
@@ -46,6 +46,7 @@ program
   .command('scan')
   .description('AI oskenuje elementy na stránkách')
   .option('-p, --page <path>', 'Skenovat pouze konkrétní stránku')
+  .option('-f, --framework <type>', 'Framework: vuetify, symfony, generic', config.framework)
   .option('--retry <number>', 'Počet retries při chybě AI', '3')
   .action(async (options) => {
     const errors = validateConfig();
@@ -75,6 +76,7 @@ program
 program
   .command('run')
   .description('Spustí celý proces: crawl → scan → generate')
+  .option('-f, --framework <type>', 'Framework: vuetify, symfony, generic', config.framework)
   .option('--skip-review', 'Přeskočit interaktivní review')
   .action(async (options) => {
     const errors = validateConfig();
