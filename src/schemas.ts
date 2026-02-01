@@ -1,39 +1,50 @@
 import { z } from 'zod';
-import { log } from './lib/logger.js';
 
 // JS identifier pattern - prevents code injection
 const jsIdentifierPattern = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
 
-// Element schema with validated name
+// Max lengths to prevent huge generated files from malicious AI responses
+const MAX_LENGTHS = {
+  IDENTIFIER: 100,    // JS identifiers (names, class names)
+  SELECTOR: 1000,     // CSS selectors
+  DESCRIPTION: 500,   // Descriptions, purposes, reasons
+  URL: 2000,          // URLs
+} as const;
+
+// Element schema with validated name and length limits
 export const ElementSchema = z.object({
-  name: z.string().regex(jsIdentifierPattern, 'Element name must be valid JS identifier'),
-  component: z.string(),
-  selector: z.string().max(1000, 'Selector too long'),
+  name: z.string()
+    .max(MAX_LENGTHS.IDENTIFIER, 'Element name too long')
+    .regex(jsIdentifierPattern, 'Element name must be valid JS identifier'),
+  component: z.string().max(MAX_LENGTHS.IDENTIFIER, 'Component name too long'),
+  selector: z.string().max(MAX_LENGTHS.SELECTOR, 'Selector too long'),
   action: z.enum(['click', 'fill', 'select', 'check', 'toggle', 'none']),
-  description: z.string(),
+  description: z.string().max(MAX_LENGTHS.DESCRIPTION, 'Description too long'),
   importance: z.enum(['high', 'medium', 'low']),
   isModalTrigger: z.boolean().default(false),
 });
 
-// Page analysis schema
+// Page analysis schema with length limits
 export const PageAnalysisSchema = z.object({
-  url: z.string(),
-  purpose: z.string(),
+  url: z.string().max(MAX_LENGTHS.URL, 'URL too long'),
+  purpose: z.string().max(MAX_LENGTHS.DESCRIPTION, 'Purpose too long'),
   shouldBePageObject: z.union([z.boolean(), z.literal('ask_user')]),
-  reason: z.string(),
-  suggestedClassName: z.string().regex(jsIdentifierPattern, 'Class name must be valid JS identifier'),
+  reason: z.string().max(MAX_LENGTHS.DESCRIPTION, 'Reason too long'),
+  suggestedClassName: z.string()
+    .max(MAX_LENGTHS.IDENTIFIER, 'Class name too long')
+    .regex(jsIdentifierPattern, 'Class name must be valid JS identifier'),
 });
 
-// Modal info schema
+// Modal info schema with length limits
 export const ModalInfoSchema = z.object({
-  triggerElement: z.string(),
-  expectedContent: z.string(),
+  triggerElement: z.string().max(MAX_LENGTHS.IDENTIFIER, 'Trigger element name too long'),
+  expectedContent: z.string().max(MAX_LENGTHS.DESCRIPTION, 'Expected content too long'),
 });
 
-// Navigation schema
+// Navigation schema with length limits
 export const NavigationSchema = z.object({
-  element: z.string(),
-  targetUrl: z.string(),
+  element: z.string().max(MAX_LENGTHS.IDENTIFIER, 'Element name too long'),
+  targetUrl: z.string().max(MAX_LENGTHS.URL, 'Target URL too long'),
 });
 
 // Full scan result schema
@@ -44,14 +55,16 @@ export const ScanResultSchema = z.object({
   navigation: z.array(NavigationSchema).default([]),
 });
 
-// Modal analysis schema
+// Modal analysis schema with length limits
 export const ModalAnalysisSchema = z.object({
-  modalName: z.string().regex(jsIdentifierPattern, 'Modal name must be valid JS identifier'),
-  purpose: z.string(),
+  modalName: z.string()
+    .max(MAX_LENGTHS.IDENTIFIER, 'Modal name too long')
+    .regex(jsIdentifierPattern, 'Modal name must be valid JS identifier'),
+  purpose: z.string().max(MAX_LENGTHS.DESCRIPTION, 'Purpose too long'),
   elements: z.array(ElementSchema).default([]),
   actions: z.object({
-    confirm: z.string().optional(),
-    cancel: z.string().optional(),
+    confirm: z.string().max(MAX_LENGTHS.SELECTOR, 'Confirm selector too long').optional(),
+    cancel: z.string().max(MAX_LENGTHS.SELECTOR, 'Cancel selector too long').optional(),
   }).default({}),
 });
 
@@ -63,25 +76,56 @@ export type NavigationInfo = z.infer<typeof NavigationSchema>;
 export type ScanResult = z.infer<typeof ScanResultSchema>;
 export type ModalAnalysis = z.infer<typeof ModalAnalysisSchema>;
 
-// Validation helpers with logging
-export function validateScanResult(data: unknown): ScanResult | null {
-  try {
-    return ScanResultSchema.parse(data);
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      log.debug(`ScanResult validation failed: ${error.errors.map(e => e.message).join(', ')}`);
-    }
-    return null;
-  }
+/**
+ * Validation result with optional error details
+ */
+export interface ValidationResult<T> {
+  data: T | null;
+  errors?: string[];
 }
 
-export function validateModalAnalysis(data: unknown): ModalAnalysis | null {
-  try {
-    return ModalAnalysisSchema.parse(data);
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      log.debug(`ModalAnalysis validation failed: ${error.errors.map(e => e.message).join(', ')}`);
-    }
-    return null;
+/**
+ * Validate scan result data against schema
+ * Returns data and any validation errors for caller to handle logging
+ */
+export function validateScanResult(data: unknown): ScanResult | null {
+  const result = ScanResultSchema.safeParse(data);
+  return result.success ? result.data : null;
+}
+
+/**
+ * Validate scan result with detailed error information
+ */
+export function validateScanResultWithErrors(data: unknown): ValidationResult<ScanResult> {
+  const result = ScanResultSchema.safeParse(data);
+  if (result.success) {
+    return { data: result.data };
   }
+  return {
+    data: null,
+    errors: result.error.errors.map(e => `${e.path.join('.')}: ${e.message}`),
+  };
+}
+
+/**
+ * Validate modal analysis data against schema
+ * Returns data and any validation errors for caller to handle logging
+ */
+export function validateModalAnalysis(data: unknown): ModalAnalysis | null {
+  const result = ModalAnalysisSchema.safeParse(data);
+  return result.success ? result.data : null;
+}
+
+/**
+ * Validate modal analysis with detailed error information
+ */
+export function validateModalAnalysisWithErrors(data: unknown): ValidationResult<ModalAnalysis> {
+  const result = ModalAnalysisSchema.safeParse(data);
+  if (result.success) {
+    return { data: result.data };
+  }
+  return {
+    data: null,
+    errors: result.error.errors.map(e => `${e.path.join('.')}: ${e.message}`),
+  };
 }

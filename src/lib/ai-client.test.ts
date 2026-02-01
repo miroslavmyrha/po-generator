@@ -237,16 +237,16 @@ Let me know if you need more details.`;
     expect(result.nested).toHaveLength(2);
   });
 
-  it('throws when response contains multiple JSON objects (greedy regex)', () => {
+  it('extracts first JSON object when response contains multiple objects', () => {
     const response = `
       First object: {"first": true}
       Second object: {"second": true}
     `;
 
-    // The regex /\{[\s\S]*\}/ is greedy and matches from first { to last }
-    // This creates invalid JSON, so it should throw
-    // This is expected - AI should return single JSON
-    expect(() => parseJsonResponse(response)).toThrow();
+    // Balanced bracket matching extracts the first complete JSON object
+    // This is correct behavior - gracefully handles multiple objects
+    const result = parseJsonResponse(response) as { first?: boolean };
+    expect(result.first).toBe(true);
   });
 
   it('handles JSON with special characters in strings', () => {

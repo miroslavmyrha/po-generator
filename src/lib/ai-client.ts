@@ -1,97 +1,52 @@
 import OpenAI from 'openai';
-import { ERRORS, LIMITS, FRAMEWORK_MODAL_SELECTORS } from '../constants.js';
+import { ERRORS, LIMITS } from '../constants.js';
+import { FRAMEWORK_PROMPTS, FRAMEWORK_MODAL_SELECTORS } from '../frameworks.js';
+import type { Framework } from '../frameworks.js';
 import { log } from './logger.js';
-import { getErrorMessage, withRetry } from './utils.js';
+import { getErrorMessage, withRetry, registerCleanup } from './utils.js';
 import { validateScanResult, validateModalAnalysis } from '../schemas.js';
 import { AppError } from '../types.js';
 import type { Config, ScanResult, ModalAnalysis, AnalyzeOptions } from '../types.js';
-import type { Framework } from '../constants.js';
+
+// Cached OpenAI client instance
+let cachedClient: OpenAI | null = null;
+let cachedClientBaseUrl: string | null = null;
 
 /**
- * Create OpenAI client with config
+ * Clear cached OpenAI client - called on process cleanup
+ * Prevents memory leaks in long-running processes
  */
-function createClient(config: Config): OpenAI {
-  return new OpenAI({
-    baseURL: config.ai.baseUrl,
-    apiKey: config.ai.apiKey,
-  });
+export function clearAIClient(): void {
+  cachedClient = null;
+  cachedClientBaseUrl = null;
 }
 
-// Framework-specific prompts
-const FRAMEWORK_PROMPTS: Record<Framework, string> = {
-  vuetify: `
-VUETIFY 3 COMPONENTS:
-- v-btn → .v-btn
-- v-text-field → .v-text-field (input inside)
-- v-textarea → .v-textarea (textarea inside)
-- v-select → .v-select (click .v-field, then .v-list-item)
-- v-autocomplete → .v-autocomplete
-- v-checkbox → .v-checkbox
-- v-switch → .v-switch
-- v-radio-group → .v-radio-group
-- v-data-table → .v-data-table
-- v-dialog → .v-dialog
-- v-card → .v-card
-- v-tab → .v-tab
-- v-expansion-panel → .v-expansion-panel
-- v-navigation-drawer → .v-navigation-drawer
-- v-app-bar → .v-app-bar
-- v-list-item → .v-list-item
-- v-menu → .v-menu
+// Register cleanup handler to clear client on process exit
+registerCleanup(clearAIClient);
 
-MODALS: .v-dialog, .v-overlay
-`,
+/**
+ * Create or return cached OpenAI client with config
+ * Client is cached per base URL to avoid reconnection overhead
+ * SECURITY: API key is NOT included in cache key to prevent exposure in logs
+ */
+function createClient(config: Config): OpenAI {
+  // Cache key based on base URL only - API key not included for security
+  if (cachedClient && cachedClientBaseUrl === config.ai.baseUrl) {
+    return cachedClient;
+  }
 
-  symfony: `
-SYMFONY/STIMULUS COMPONENTS:
-- Stimulus controllers: [data-controller="..."]
-- Stimulus actions: [data-action="..."]
-- Stimulus targets: [data-{controller}-target="..."]
-- Turbo frames: turbo-frame[id="..."]
-- Turbo streams: turbo-stream
+  cachedClient = new OpenAI({
+    baseURL: config.ai.baseUrl,
+    apiKey: config.ai.apiKey,
+    timeout: 60000, // 60 second timeout to prevent hanging
+    maxRetries: 0, // We handle retries ourselves with withRetry
+  });
+  cachedClientBaseUrl = config.ai.baseUrl;
 
-FORMS:
-- Symfony form fields often have id format: #{form_name}_{field_name}
-- Error messages: .form-error-message, .invalid-feedback
-- Form groups: .form-group, .mb-3
+  return cachedClient;
+}
 
-BOOTSTRAP COMPONENTS (if used):
-- Buttons: .btn, .btn-primary, .btn-secondary
-- Inputs: .form-control, .form-select
-- Modals: .modal, .modal-dialog
-- Cards: .card, .card-body
-- Tables: .table, tbody tr
-- Alerts: .alert
-- Dropdowns: .dropdown, .dropdown-menu, .dropdown-item
-
-VUE COMPONENTS (if embedded):
-- Look for [data-v-*] attributes
-- Vue root: #app, [id="app"]
-- Vue components often have unique classes
-
-MODALS: .modal, [data-controller*="modal"], .modal-dialog
-`,
-
-  generic: `
-COMMON INTERACTIVE ELEMENTS:
-- Buttons: button, [type="submit"], [type="button"], .btn, [role="button"]
-- Links: a[href]
-- Inputs: input, textarea, select
-- Checkboxes: input[type="checkbox"]
-- Radio: input[type="radio"]
-- Forms: form
-
-JAVASCRIPT HANDLERS:
-- [onclick], [onsubmit], [onchange]
-- [data-action] (Stimulus)
-- [@click], [v-on:click] (Vue)
-- [data-*] custom attributes
-
-MODALS/DIALOGS:
-- .modal, [role="dialog"], dialog
-- .popup, .overlay, .lightbox
-`,
-};
+// Framework prompts are now imported from frameworks.ts
 
 const BASE_PROMPT = `
 You are an expert in web testing with Playwright. You analyze HTML pages and return structured data for generating Page Objects.
@@ -148,14 +103,22 @@ RETURN ONLY VALID JSON (no markdown, no extra text):
 `;
 
 /**
- * Build the complete scanner prompt for a given framework
- * Combines base prompt + framework-specific selectors + output format
+ * Pre-computed full prompts for each framework
+ * Computed once at module load to avoid string concatenation on every call
+ */
+const FULL_PROMPTS: Record<Framework, string> = {
+  vuetify: BASE_PROMPT + FRAMEWORK_PROMPTS.vuetify + OUTPUT_FORMAT,
+  symfony: BASE_PROMPT + FRAMEWORK_PROMPTS.symfony + OUTPUT_FORMAT,
+  generic: BASE_PROMPT + FRAMEWORK_PROMPTS.generic + OUTPUT_FORMAT,
+};
+
+/**
+ * Get the complete scanner prompt for a given framework
  * @param framework - Target framework (vuetify, symfony, or generic)
- * @returns Complete prompt string for AI analysis
+ * @returns Pre-computed complete prompt string for AI analysis
  */
 function getScannerPrompt(framework: Framework): string {
-  const frameworkPrompt = FRAMEWORK_PROMPTS[framework] || FRAMEWORK_PROMPTS.generic;
-  return BASE_PROMPT + frameworkPrompt + OUTPUT_FORMAT;
+  return FULL_PROMPTS[framework] ?? FULL_PROMPTS.generic;
 }
 
 /**
@@ -169,7 +132,8 @@ export async function analyzeHtml(
 ): Promise<ScanResult | null> {
   const { retries = 3, framework = 'generic' } = options;
   const cleanHtml = cleanHtmlContent(html);
-  const prompt = getScannerPrompt(framework as Framework);
+  // framework is already Framework type (from options or default 'generic')
+  const prompt = getScannerPrompt(framework);
   const client = createClient(config);
 
   return withRetry(
@@ -204,10 +168,12 @@ export async function analyzeModalContent(
   options: AnalyzeOptions = {}
 ): Promise<ModalAnalysis | null> {
   const { retries = 3, framework = 'generic' } = options;
-  const cleanHtml = html.substring(0, LIMITS.MODAL_HTML_MAX_LENGTH);
+  // Sanitize modal HTML (remove scripts, styles, comments) before AI analysis
+  const cleanHtml = cleanHtmlContent(html.substring(0, LIMITS.MODAL_HTML_MAX_LENGTH));
   const client = createClient(config);
 
-  const prompt = buildModalPrompt(triggerName, framework as Framework, FRAMEWORK_MODAL_SELECTORS);
+  // framework is already Framework type (from options or default 'generic')
+  const prompt = buildModalPrompt(triggerName, framework, FRAMEWORK_MODAL_SELECTORS);
 
   return withRetry(
     async () => {
@@ -227,14 +193,26 @@ export async function analyzeModalContent(
 
 /**
  * Clean HTML content by removing scripts, styles, and comments
+ * Uses simple non-backtracking patterns to prevent ReDoS
  * @internal Exported for testing
  */
 export function cleanHtmlContent(html: string): string {
-  return html
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .substring(0, LIMITS.HTML_MAX_LENGTH);
+  if (!html) return '';
+
+  // Truncate first to limit regex processing time
+  const truncated = html.substring(0, LIMITS.HTML_MAX_LENGTH);
+
+  // Use simple, non-backtracking patterns to prevent ReDoS
+  // Remove script tags (non-greedy, case insensitive)
+  let result = truncated.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+
+  // Remove style tags
+  result = result.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+
+  // Remove HTML comments
+  result = result.replace(/<!--[\s\S]*?-->/g, '');
+
+  return result;
 }
 
 /**
@@ -242,10 +220,18 @@ export function cleanHtmlContent(html: string): string {
  */
 function extractResponseContent(response: OpenAI.Chat.Completions.ChatCompletion): string {
   const choice = response.choices?.[0];
-  if (!choice?.message?.content) {
+  const content = choice?.message?.content;
+
+  if (!content) {
     throw new AppError('Invalid AI response: missing choices or content', 'AI_INVALID_RESPONSE');
   }
-  return choice.message.content;
+
+  // Check for empty or whitespace-only response
+  if (!content.trim()) {
+    throw new AppError('AI returned empty response', 'AI_EMPTY_RESPONSE');
+  }
+
+  return content;
 }
 
 async function callAI(
@@ -279,6 +265,7 @@ async function callAISimple(client: OpenAI, model: string, prompt: string): Prom
 
 /**
  * Parse JSON from AI response, handling markdown code blocks
+ * Uses balanced bracket matching to find the first complete JSON object
  * @internal Exported for testing
  */
 export function parseJsonResponse(content: string | null): unknown {
@@ -286,12 +273,54 @@ export function parseJsonResponse(content: string | null): unknown {
     throw new AppError('Empty AI response', 'AI_EMPTY_RESPONSE');
   }
 
-  const jsonMatch = content.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
+  // Find first { and extract balanced JSON object
+  const startIndex = content.indexOf('{');
+  if (startIndex === -1) {
     throw new AppError('No JSON found in response', 'AI_INVALID_JSON');
   }
 
-  return JSON.parse(jsonMatch[0]);
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = startIndex; i < content.length; i++) {
+    const char = content[i];
+
+    if (escape) {
+      escape = false;
+      continue;
+    }
+
+    if (char === '\\' && inString) {
+      escape = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (!inString) {
+      if (char === '{') depth++;
+      if (char === '}') {
+        depth--;
+        if (depth === 0) {
+          const jsonStr = content.substring(startIndex, i + 1);
+          const parsed = JSON.parse(jsonStr);
+
+          // Prevent prototype pollution by nullifying prototype
+          if (parsed && typeof parsed === 'object') {
+            Object.setPrototypeOf(parsed, null);
+          }
+
+          return parsed;
+        }
+      }
+    }
+  }
+
+  throw new AppError('Incomplete JSON in response', 'AI_INVALID_JSON');
 }
 
 /**
@@ -336,4 +365,3 @@ Modal HTML:
 `;
 }
 
-export const SUPPORTED_FRAMEWORKS: Framework[] = ['vuetify', 'symfony', 'generic'];

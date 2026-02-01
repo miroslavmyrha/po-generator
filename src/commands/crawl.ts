@@ -4,15 +4,31 @@ import ora from 'ora';
 import { FILES, SUCCESS } from '../constants.js';
 import { log } from '../lib/logger.js';
 import { createBrowser, crawlUrls, handleAuthenticatedLogin } from '../lib/crawler.js';
-import { truncate, getErrorMessage } from '../lib/utils.js';
+import { truncate, getErrorMessage, registerCleanup, getFsErrorCode, getFsErrorMessage, validateOutputPath, writeFileAtomic } from '../lib/utils.js';
 import { AppError } from '../types.js';
 import type { Config, CrawlOptions, PageInfo } from '../types.js';
 
 export async function crawlCommand(config: Config, options: CrawlOptions): Promise<void> {
   log.info('\n🔍 Starting crawler...\n');
 
+  // Apply depth option override if provided
+  if (options.depth) {
+    const depth = parseInt(options.depth, 10);
+    if (!isNaN(depth) && depth > 0 && depth <= 100) {
+      config.crawler.maxDepth = depth;
+      log.dim(`Max depth: ${depth}\n`);
+    }
+  }
+
   const spinner = ora('Starting browser').start();
   const { browser, page } = await createBrowser(true);
+
+  // Register browser cleanup for graceful shutdown on SIGINT/SIGTERM
+  // Returns unregister function to prevent handler accumulation in workflows
+  const unregisterCleanup = registerCleanup(async () => {
+    spinner.stop();
+    await browser.close();
+  });
 
   try {
     // Handle login if auth is enabled and not explicitly skipped
@@ -23,7 +39,9 @@ export async function crawlCommand(config: Config, options: CrawlOptions): Promi
     saveSitemap(config, sitemap);
     printSummary(sitemap);
   } finally {
+    spinner.stop(); // Ensure spinner is stopped on exit
     await browser.close();
+    unregisterCleanup(); // Remove handler after browser closed - prevents accumulation
   }
 }
 
@@ -45,15 +63,19 @@ async function performCrawl(
 }
 
 function saveSitemap(config: Config, sitemap: PageInfo[]): void {
-  const outputDir = config.output.dir;
+  // Validate output directory against path traversal attacks
+  const outputDir = validateOutputPath(config.output.dir);
   const sitemapPath = path.join(outputDir, FILES.SITEMAP);
 
   try {
     fs.mkdirSync(outputDir, { recursive: true });
-    fs.writeFileSync(sitemapPath, JSON.stringify(sitemap, null, 2));
+    // Atomic write prevents corrupted files on interrupt
+    writeFileAtomic(sitemapPath, JSON.stringify(sitemap, null, 2));
     log.success(`Sitemap saved: ${sitemapPath}`);
   } catch (error) {
-    throw new AppError(`Failed to save sitemap: ${getErrorMessage(error)}`, 'SAVE_FAILED');
+    const errorCode = getFsErrorCode(error);
+    const errorMsg = getFsErrorMessage(error, sitemapPath);
+    throw new AppError(`Failed to save sitemap: ${errorMsg}`, `SAVE_FAILED_${errorCode}`);
   }
 }
 

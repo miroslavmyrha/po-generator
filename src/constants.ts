@@ -86,13 +86,7 @@ export const SELECTORS = {
   DROPDOWN_ITEM: '.v-list-item, .dropdown-item, option',
 } as const;
 
-// Supported frameworks
-export const FRAMEWORKS = ['vuetify', 'symfony', 'generic'] as const;
-export type Framework = typeof FRAMEWORKS[number];
-
-// Framework-specific modal selectors for AI analysis
-export const FRAMEWORK_MODAL_SELECTORS: Record<Framework, string> = {
-  vuetify: '.v-dialog, .v-overlay',
-  symfony: '.modal, .modal-dialog, [data-controller*="modal"]',
-  generic: '.modal, [role="dialog"], dialog, .overlay',
-} as const;
+// Re-export framework types and constants from centralized registry
+// All framework configuration is now in frameworks.ts
+export { FRAMEWORKS, FRAMEWORK_MODAL_SELECTORS } from './frameworks.js';
+export type { Framework } from './frameworks.js';

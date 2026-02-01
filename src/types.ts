@@ -59,21 +59,12 @@ export interface OutputConfig {
 }
 
 export interface Config {
-  framework: string;
-  baseUrl: string;
-  auth: AuthConfig;
-  ai: AIConfig;
-  output: OutputConfig;
-  crawler: CrawlerConfig;
-}
-
-export interface FrameworkDefaults {
-  waitForSelector: string;
-  loginFields: {
-    username: string;
-    password: string;
-    submit: string;
-  };
+  readonly framework: string;
+  readonly baseUrl: string;
+  readonly auth: Readonly<AuthConfig>;
+  readonly ai: Readonly<AIConfig>;
+  readonly output: Readonly<OutputConfig>;
+  crawler: CrawlerConfig; // Mutable - can be overridden by CLI options
 }
 
 // Browser types
@@ -161,3 +152,30 @@ export interface AnalyzeOptions {
 
 // Export Framework type
 export type { Framework };
+
+/**
+ * Logger interface for dependency injection
+ * Allows mocking in tests and alternative implementations
+ */
+export interface Logger {
+  info(msg: string): void;
+  success(msg: string): void;
+  warn(msg: string): void;
+  error(msg: string): void;
+  debug(msg: string): void;
+  step(msg: string): void;
+  dim(msg: string): void;
+}
+
+/**
+ * Progress reporter interface for dependency injection
+ * Abstracts spinner/progress indicator for testability
+ */
+export interface ProgressReporter {
+  start(text: string): void;
+  stop(): void;
+  succeed(text: string): void;
+  fail(text: string): void;
+  warn(text: string): void;
+  text: string;
+}

@@ -1,5 +1,14 @@
-import 'dotenv/config';
-import type { Config, FrameworkDefaults } from './types.js';
+import fs from 'fs';
+import path from 'path';
+import type { Config } from './types.js';
+import { log } from './lib/logger.js';
+import { FRAMEWORKS, FRAMEWORK_DEFAULTS, isValidFramework, getFrameworkConfig } from './frameworks.js';
+import type { Framework } from './frameworks.js';
+
+/** @deprecated Use FRAMEWORKS from frameworks.ts */
+export const SUPPORTED_FRAMEWORKS = FRAMEWORKS;
+/** @deprecated Use Framework from frameworks.ts */
+export type SupportedFramework = Framework;
 
 /**
  * Deep partial type for nested config overrides
@@ -15,51 +24,60 @@ type DeepPartial<T> = {
 
 /**
  * Parse integer from environment variable with validation
+ * Logs warning if value is invalid
  */
-function parseIntEnv(value: string | undefined, defaultValue: number, min: number, max: number): number {
+function parseIntEnv(value: string | undefined, defaultValue: number, min: number, max: number, name?: string): number {
   if (!value) return defaultValue;
   const parsed = parseInt(value, 10);
   if (isNaN(parsed) || parsed < min || parsed > max) {
+    if (name) {
+      log.warn(`Invalid ${name}: "${value}" - using default ${defaultValue}`);
+    }
     return defaultValue;
   }
   return parsed;
 }
 
-// Framework-specific defaults
-export const FRAMEWORK_DEFAULTS: Record<string, FrameworkDefaults> = {
-  vuetify: {
-    waitForSelector: '.v-application',
-    loginFields: {
-      username: ".v-text-field:has-text('Email') input",
-      password: ".v-text-field:has-text('Password') input",
-      submit: ".v-btn:has-text('Login')",
-    },
-  },
-  symfony: {
-    waitForSelector: 'body',
-    loginFields: {
-      username: "#username, #_username, input[name='_username'], input[name='email']",
-      password: "#password, #_password, input[name='_password'], input[type='password']",
-      submit: "button[type='submit'], input[type='submit'], .btn:has-text('Login'), .btn:has-text('Přihlásit')",
-    },
-  },
-  generic: {
-    waitForSelector: 'body',
-    loginFields: {
-      username: "input[type='email'], input[name='email'], input[name='username'], #email, #username",
-      password: "input[type='password'], #password",
-      submit: "button[type='submit'], input[type='submit']",
-    },
-  },
-};
+/**
+ * Check .env file permissions on Unix systems
+ * Warns if file is world-readable (should be 600)
+ */
+function checkEnvPermissions(): void {
+  try {
+    const envPath = path.join(process.cwd(), '.env');
+    if (!fs.existsSync(envPath)) return;
+
+    const stats = fs.statSync(envPath);
+    // Check if group or others have read permission (non-owner readable)
+    const mode = stats.mode & 0o777;
+    if ((mode & 0o077) !== 0) {
+      log.warn('.env file has overly permissive permissions. Consider: chmod 600 .env');
+    }
+  } catch {
+    // Ignore errors - permission check is advisory only
+  }
+}
+
+// Re-export FRAMEWORK_DEFAULTS from frameworks.ts for backwards compatibility
+export { FRAMEWORK_DEFAULTS } from './frameworks.js';
 
 /**
  * Create configuration from environment variables with optional overrides
  * This is the primary way to get a Config instance
  */
 export function createConfig(overrides: DeepPartial<Config> = {}): Config {
+  // Check .env permissions on startup
+  checkEnvPermissions();
+
   const framework = (overrides.framework ?? process.env.PO_GEN_FRAMEWORK ?? 'generic') as string;
-  const frameworkDefaults = FRAMEWORK_DEFAULTS[framework] ?? FRAMEWORK_DEFAULTS.generic;
+
+  // Validate framework and warn on unknown values
+  if (!isValidFramework(framework)) {
+    log.warn(`Unknown framework "${framework}" - using "generic". Supported: ${FRAMEWORKS.join(', ')}`);
+  }
+
+  // Get framework configuration from centralized registry
+  const frameworkConfig = getFrameworkConfig(framework);
 
   return {
     framework,
@@ -74,9 +92,9 @@ export function createConfig(overrides: DeepPartial<Config> = {}): Config {
         password: overrides.auth?.credentials?.password ?? process.env.PO_GEN_PASSWORD,
       },
       fields: {
-        username: overrides.auth?.fields?.username ?? process.env.PO_GEN_FIELD_USERNAME ?? frameworkDefaults.loginFields.username,
-        password: overrides.auth?.fields?.password ?? process.env.PO_GEN_FIELD_PASSWORD ?? frameworkDefaults.loginFields.password,
-        submit: overrides.auth?.fields?.submit ?? process.env.PO_GEN_FIELD_SUBMIT ?? frameworkDefaults.loginFields.submit,
+        username: overrides.auth?.fields?.username ?? process.env.PO_GEN_FIELD_USERNAME ?? frameworkConfig.loginFields.username,
+        password: overrides.auth?.fields?.password ?? process.env.PO_GEN_FIELD_PASSWORD ?? frameworkConfig.loginFields.password,
+        submit: overrides.auth?.fields?.submit ?? process.env.PO_GEN_FIELD_SUBMIT ?? frameworkConfig.loginFields.submit,
       },
       successUrl: overrides.auth?.successUrl ?? process.env.PO_GEN_SUCCESS_URL ?? '/dashboard',
     },
@@ -92,21 +110,69 @@ export function createConfig(overrides: DeepPartial<Config> = {}): Config {
     },
 
     crawler: {
-      maxDepth: overrides.crawler?.maxDepth ?? parseIntEnv(process.env.PO_GEN_MAX_DEPTH, 10, 1, 100),
-      timeout: overrides.crawler?.timeout ?? parseIntEnv(process.env.PO_GEN_TIMEOUT, 30000, 1000, 120000),
-      waitForSelector: overrides.crawler?.waitForSelector ?? process.env.PO_GEN_WAIT_SELECTOR ?? frameworkDefaults.waitForSelector,
+      maxDepth: overrides.crawler?.maxDepth ?? parseIntEnv(process.env.PO_GEN_MAX_DEPTH, 10, 1, 100, 'PO_GEN_MAX_DEPTH'),
+      timeout: overrides.crawler?.timeout ?? parseIntEnv(process.env.PO_GEN_TIMEOUT, 30000, 1000, 120000, 'PO_GEN_TIMEOUT'),
+      waitForSelector: overrides.crawler?.waitForSelector ?? process.env.PO_GEN_WAIT_SELECTOR ?? frameworkConfig.waitForSelector,
       ignorePatterns: overrides.crawler?.ignorePatterns ?? (process.env.PO_GEN_IGNORE || '/logout,/api/,.pdf,.jpg,.png,.gif,.css,.js').split(',').filter(Boolean),
     },
   };
 }
 
 /**
- * Validate URL format and return warnings for insecure URLs
+ * Check if hostname is localhost (allowed for development)
+ */
+function isLocalhost(hostname: string): boolean {
+  return /^(localhost|127\.0\.0\.1|\[::1\]|::1)$/i.test(hostname);
+}
+
+/**
+ * Check if hostname resolves to a private/internal IP address (excluding localhost)
+ * Prevents SSRF attacks by blocking access to internal networks
+ */
+function isDangerousPrivateHost(hostname: string): boolean {
+  // Allow localhost for development
+  if (isLocalhost(hostname)) return false;
+
+  // Block other loopback addresses
+  if (/^127\.\d+\.\d+\.\d+$/.test(hostname)) return true;
+  if (/^0\.0\.0\.0$/.test(hostname)) return true;
+
+  // Check for private IP ranges (IPv4)
+  const ipv4Match = hostname.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (ipv4Match) {
+    const [, a, b, c, d] = ipv4Match.map(Number);
+    // Validate octets are in valid IP range (0-255)
+    if (a > 255 || b > 255 || c > 255 || d > 255) {
+      return true; // Invalid IP - treat as dangerous
+    }
+    // 10.0.0.0/8 - Private network
+    if (a === 10) return true;
+    // 172.16.0.0/12 - Private network
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    // 192.168.0.0/16 - Private network
+    if (a === 192 && b === 168) return true;
+    // 169.254.0.0/16 - Link-local (AWS metadata endpoint!)
+    if (a === 169 && b === 254) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Validate URL format, check for SSRF risks, and return warnings for insecure URLs
+ * Allows localhost for development but blocks other private IP ranges
  */
 function validateUrl(url: string, name: string): { error?: string; warning?: string } {
   try {
     const parsed = new URL(url);
-    if (parsed.protocol === 'http:' && !parsed.hostname.match(/^(localhost|127\.0\.0\.1)$/)) {
+
+    // SSRF protection: block private/internal IPs (except localhost)
+    if (isDangerousPrivateHost(parsed.hostname)) {
+      return { error: `${name} points to private/internal network - potential SSRF risk. Use localhost or public URL.` };
+    }
+
+    // Warn about HTTP on non-localhost
+    if (parsed.protocol === 'http:' && !isLocalhost(parsed.hostname)) {
       return { warning: `${name} uses HTTP - consider HTTPS for security` };
     }
     return {};
@@ -116,12 +182,23 @@ function validateUrl(url: string, name: string): { error?: string; warning?: str
 }
 
 /**
- * Validate configuration and return errors/warnings
+ * Configuration validation result with structured errors and warnings
  */
-export function validateConfig(cfg: Config): string[] {
+export interface ConfigValidationResult {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+/**
+ * Validate configuration and return structured result
+ * Use this for programmatic access to validation results
+ */
+export function validateConfigStructured(cfg: Config): ConfigValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
 
+  // Validate base URL
   if (!cfg.baseUrl) {
     errors.push('PO_GEN_BASE_URL is required');
   } else {
@@ -130,6 +207,7 @@ export function validateConfig(cfg: Config): string[] {
     if (baseUrlCheck.warning) warnings.push(baseUrlCheck.warning);
   }
 
+  // Validate AI config
   if (!cfg.ai.apiKey) {
     errors.push('PO_GEN_AI_KEY is required');
   }
@@ -140,10 +218,33 @@ export function validateConfig(cfg: Config): string[] {
     if (aiUrlCheck.warning) warnings.push(aiUrlCheck.warning);
   }
 
+  // Validate auth config
   if (cfg.auth.enabled) {
-    if (!cfg.auth.credentials.username) errors.push('PO_GEN_USERNAME is required when auth is enabled');
-    if (!cfg.auth.credentials.password) errors.push('PO_GEN_PASSWORD is required when auth is enabled');
+    if (!cfg.auth.credentials.username) {
+      errors.push('PO_GEN_USERNAME is required when auth is enabled');
+    }
+    if (!cfg.auth.credentials.password) {
+      errors.push('PO_GEN_PASSWORD is required when auth is enabled');
+    }
   }
 
-  return [...errors, ...warnings.map((w) => `[WARN] ${w}`)];
+  // Validate framework using type-safe check
+  if (!isValidFramework(cfg.framework)) {
+    warnings.push(`Unknown framework "${cfg.framework}" - using generic defaults`);
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    warnings,
+  };
+}
+
+/**
+ * Validate configuration and return errors/warnings as string array
+ * @deprecated Use validateConfigStructured for better type safety
+ */
+export function validateConfig(cfg: Config): string[] {
+  const result = validateConfigStructured(cfg);
+  return [...result.errors, ...result.warnings.map((w) => `[WARN] ${w}`)];
 }

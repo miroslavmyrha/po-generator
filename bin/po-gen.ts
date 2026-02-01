@@ -1,7 +1,10 @@
 #!/usr/bin/env -S node --import tsx
 
+// Load environment variables FIRST - before any other imports that use them
+import 'dotenv/config';
+
 import { Command } from 'commander';
-import { createConfig, validateConfig } from '../src/config.js';
+import { createConfig, validateConfigStructured } from '../src/config.js';
 import { crawlCommand } from '../src/commands/crawl.js';
 import { scanCommand } from '../src/commands/scan.js';
 import { generateCommand } from '../src/commands/generate.js';
@@ -9,8 +12,30 @@ import { reviewCommand } from '../src/commands/review.js';
 import { runCommand } from '../src/commands/run.js';
 import { initCommand } from '../src/commands/init.js';
 import { log } from '../src/lib/logger.js';
+import { runCleanupHandlers } from '../src/lib/utils.js';
 import { AppError } from '../src/types.js';
 import type { Config } from '../src/types.js';
+
+// Handle graceful shutdown on SIGINT (Ctrl+C) and SIGTERM
+// Use process.once to prevent handler accumulation on repeated imports
+process.once('SIGINT', async () => {
+  log.dim('\n\nShutting down gracefully...');
+  await runCleanupHandlers();
+  process.exit(130); // Standard exit code for SIGINT
+});
+
+process.once('SIGTERM', async () => {
+  log.dim('\nReceived SIGTERM, shutting down...');
+  await runCleanupHandlers();
+  process.exit(143); // Standard exit code for SIGTERM
+});
+
+// Handle unhandled promise rejections
+process.once('unhandledRejection', async (reason) => {
+  log.error(`Unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`);
+  await runCleanupHandlers();
+  process.exit(1);
+});
 
 // Create config once at startup
 const config = createConfig();
@@ -107,13 +132,22 @@ function wrapCommand<T>(handler: (options: T) => Promise<void>): (options: T) =>
 
 /**
  * Validate configuration and exit if invalid
+ * Uses structured validation for clear separation of errors vs warnings
  */
 function requireConfig(cfg: Config, skipIfUrl = false): void {
-  const errors = validateConfig(cfg);
+  const result = validateConfigStructured(cfg);
 
-  if (errors.length && !skipIfUrl) {
+  // Show warnings but don't block
+  for (const warning of result.warnings) {
+    log.warn(`  ⚠ ${warning}`);
+  }
+
+  // Errors block execution
+  if (!result.isValid && !skipIfUrl) {
     log.error('Configuration errors:');
-    errors.forEach((e) => log.error(`  - ${e}`));
+    for (const error of result.errors) {
+      log.error(`  - ${error}`);
+    }
     log.warn('\nRun "po-gen init" to create configuration.');
     process.exit(1);
   }

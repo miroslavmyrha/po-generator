@@ -1,5 +1,6 @@
 import readline from 'readline';
 import path from 'path';
+import fs from 'fs';
 import { AppError } from '../types.js';
 
 /**
@@ -60,11 +61,16 @@ export function camelToKebab(str: string): string {
 }
 
 /**
- * Escape single quotes in selector strings
+ * Escape special characters in selector strings for safe embedding in code
+ * Handles single quotes, backslashes, and backticks
  * Example: "[data-id='test']" → "[data-id=\'test\']"
  */
 export function escapeSelector(selector: string): string {
-  return selector.replace(/'/g, "\\'");
+  if (!selector) return '';
+  return selector
+    .replace(/\\/g, '\\\\')  // Escape backslashes first
+    .replace(/'/g, "\\'")     // Escape single quotes
+    .replace(/`/g, '\\`');    // Escape backticks for template safety
 }
 
 /**
@@ -110,15 +116,119 @@ export function getErrorMessage(error: unknown): string {
 }
 
 /**
+ * File system error codes for discrimination
+ */
+export type FsErrorCode = 'ENOENT' | 'EACCES' | 'ENOSPC' | 'EISDIR' | 'ENOTDIR' | 'EEXIST' | 'UNKNOWN';
+
+/**
+ * Extract file system error code from error object
+ */
+export function getFsErrorCode(error: unknown): FsErrorCode {
+  if (error && typeof error === 'object' && 'code' in error) {
+    const code = (error as { code: string }).code;
+    if (['ENOENT', 'EACCES', 'ENOSPC', 'EISDIR', 'ENOTDIR', 'EEXIST'].includes(code)) {
+      return code as FsErrorCode;
+    }
+  }
+  return 'UNKNOWN';
+}
+
+/**
+ * Get user-friendly error message for file system errors
+ */
+export function getFsErrorMessage(error: unknown, filePath: string): string {
+  const code = getFsErrorCode(error);
+  const fileName = path.basename(filePath);
+
+  switch (code) {
+    case 'ENOENT':
+      return `File not found: ${fileName}`;
+    case 'EACCES':
+      return `Permission denied: ${fileName}`;
+    case 'ENOSPC':
+      return `Disk full - cannot write: ${fileName}`;
+    case 'EISDIR':
+      return `Expected file but found directory: ${fileName}`;
+    case 'ENOTDIR':
+      return `Expected directory but found file: ${filePath}`;
+    case 'EEXIST':
+      return `File already exists: ${fileName}`;
+    default:
+      return getErrorMessage(error);
+  }
+}
+
+/**
+ * Write file atomically - write to temp file first, then rename
+ * Prevents partial/corrupted files on crash or interrupt
+ * @param filePath - Target file path
+ * @param content - Content to write
+ */
+export function writeFileAtomic(filePath: string, content: string): void {
+  const tempPath = `${filePath}.tmp.${process.pid}`;
+
+  try {
+    // Write to temporary file
+    fs.writeFileSync(tempPath, content);
+    // Atomic rename (on same filesystem)
+    fs.renameSync(tempPath, filePath);
+  } catch (error) {
+    // Clean up temp file on error
+    try {
+      if (fs.existsSync(tempPath)) {
+        fs.unlinkSync(tempPath);
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
+    throw error;
+  }
+}
+
+/**
  * Validate that a path doesn't escape the base directory (path traversal protection)
- * @throws Error if path traversal is detected
+ * Resolves symlinks to prevent bypass via symbolic link traversal
+ * Checks parent directories to prevent TOCTOU race conditions
+ * @throws AppError if path traversal is detected
  */
 export function validateOutputPath(userPath: string, basePath: string = process.cwd()): string {
   const resolved = path.resolve(basePath, userPath);
   const base = path.resolve(basePath);
 
+  // Initial check on logical paths
   if (!resolved.startsWith(base + path.sep) && resolved !== base) {
     throw new AppError(`Path traversal detected: ${userPath} escapes base directory`, 'PATH_TRAVERSAL');
+  }
+
+  // Resolve symlinks to detect symlink-based traversal
+  try {
+    const realBase = fs.realpathSync(base);
+
+    // Check the target path if it exists
+    if (fs.existsSync(resolved)) {
+      const realResolved = fs.realpathSync(resolved);
+      if (!realResolved.startsWith(realBase + path.sep) && realResolved !== realBase) {
+        throw new AppError(`Symlink traversal detected: ${userPath} escapes base directory`, 'PATH_TRAVERSAL');
+      }
+    } else {
+      // Target doesn't exist - check all existing parent directories
+      // This prevents TOCTOU race where symlink is created between check and use
+      let currentPath = resolved;
+      while (currentPath !== base && currentPath !== path.dirname(currentPath)) {
+        const parentPath = path.dirname(currentPath);
+        if (fs.existsSync(parentPath)) {
+          const realParent = fs.realpathSync(parentPath);
+          if (!realParent.startsWith(realBase) && realParent !== realBase) {
+            throw new AppError(`Symlink traversal detected in parent: ${userPath}`, 'PATH_TRAVERSAL');
+          }
+          break; // Found existing parent, it's safe
+        }
+        currentPath = parentPath;
+      }
+    }
+  } catch (error) {
+    // Re-throw AppErrors, ignore fs errors (base may not exist yet)
+    if (error instanceof AppError) throw error;
   }
 
   return resolved;
@@ -187,7 +297,111 @@ export async function withRetry<T>(
 
 /**
  * Promise-based delay utility
+ * @param ms - Delay in milliseconds (must be >= 0)
  */
 export function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  // Clamp to valid range: negative values become 0
+  const delay = Math.max(0, ms);
+  return new Promise((resolve) => setTimeout(resolve, delay));
+}
+
+/**
+ * Execute promises with concurrency limit
+ * Prevents overwhelming APIs with too many concurrent requests
+ * @param items - Array of items to process
+ * @param fn - Async function to apply to each item
+ * @param concurrency - Maximum concurrent operations (default: 3)
+ */
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  fn: (item: T, index: number) => Promise<R>,
+  concurrency = 3
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  if (concurrency < 1) concurrency = 1;
+
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  /**
+   * Get next index atomically - returns -1 if no more items
+   * Must capture index in single synchronous operation to prevent race
+   */
+  function getNextIndex(): number {
+    if (nextIndex >= items.length) return -1;
+    return nextIndex++;
+  }
+
+  async function worker(): Promise<void> {
+    let index: number;
+    // Atomic check-and-increment prevents race between workers
+    while ((index = getNextIndex()) !== -1) {
+      results[index] = await fn(items[index], index);
+    }
+  }
+
+  // Create worker pool - limit to actual item count
+  const workerCount = Math.min(concurrency, items.length);
+  const workers = Array.from({ length: workerCount }, () => worker());
+
+  await Promise.all(workers);
+  return results;
+}
+
+/**
+ * Escape text for use in JSDoc comments
+ * Prevents comment injection by escaping comment-closing sequences
+ */
+export function escapeJsDocComment(text: string): string {
+  if (!text) return '';
+  // Escape sequences that would close the comment or inject newlines
+  return text
+    .replace(/\*\//g, '*\u200B/')  // Zero-width space to break */
+    .replace(/\r?\n/g, ' ')         // Replace newlines with spaces
+    .trim();
+}
+
+// Global cleanup registry for graceful shutdown
+const cleanupHandlers: Array<() => Promise<void> | void> = [];
+
+/**
+ * Register a cleanup handler for graceful shutdown on SIGINT/SIGTERM
+ * Handlers are called in reverse registration order (LIFO)
+ * Returns unregister function to remove the handler after successful completion
+ */
+export function registerCleanup(handler: () => Promise<void> | void): () => void {
+  cleanupHandlers.push(handler);
+  // Return unregister function to prevent accumulation
+  return () => {
+    const index = cleanupHandlers.indexOf(handler);
+    if (index > -1) {
+      cleanupHandlers.splice(index, 1);
+    }
+  };
+}
+
+/**
+ * Run all cleanup handlers (called by signal handlers)
+ * Takes snapshot of handlers to prevent issues if handler modifies the array
+ */
+export async function runCleanupHandlers(): Promise<void> {
+  // Snapshot handlers to prevent array mutation during iteration
+  const handlers = [...cleanupHandlers].reverse();
+  cleanupHandlers.length = 0; // Clear immediately to prevent re-runs
+
+  for (const handler of handlers) {
+    try {
+      await handler();
+    } catch {
+      // Ignore cleanup errors during shutdown
+    }
+  }
+}
+
+/**
+ * Clear all cleanup handlers - used after successful command completion
+ * Prevents handler accumulation in workflows that run multiple commands
+ */
+export function clearCleanupHandlers(): void {
+  cleanupHandlers.length = 0;
 }

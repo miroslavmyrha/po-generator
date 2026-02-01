@@ -1,7 +1,7 @@
 import { chromium, Page } from 'playwright';
 import { SELECTORS, TIMEOUTS, ERRORS, SUCCESS } from '../constants.js';
 import { log } from './logger.js';
-import { getErrorMessage } from './utils.js';
+import { getErrorMessage, withRetry } from './utils.js';
 import { AppError } from '../types.js';
 import type { Config, PageInfo, BrowserInstance, ModalContent, ElementInfo } from '../types.js';
 import type { Ora } from 'ora';
@@ -17,23 +17,44 @@ export async function createBrowser(headless = true): Promise<BrowserInstance> {
 }
 
 /**
- * Perform login if authentication is enabled
+ * Login result - discriminated union for proper type narrowing
  */
-export async function login(config: Config, page: Page): Promise<boolean> {
-  if (!config.auth.enabled) return true;
+export type LoginResult =
+  | { success: true }
+  | { success: false; error: string; step: 'navigate' | 'fill' | 'submit' | 'wait' };
+
+/**
+ * Perform login if authentication is enabled
+ * Returns detailed result including which step failed
+ */
+export async function login(config: Config, page: Page): Promise<LoginResult> {
+  if (!config.auth.enabled) return { success: true };
 
   const loginUrl = config.baseUrl + config.auth.loginUrl;
-  await page.goto(loginUrl);
+
+  try {
+    await page.goto(loginUrl);
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error), step: 'navigate' };
+  }
 
   try {
     await fillLoginForm(config, page);
-    await submitLoginForm(config, page);
-    await waitForLoginSuccess(config, page);
-    return true;
   } catch (error) {
-    log.error(ERRORS.LOGIN_FAILED);
-    log.dim(getErrorMessage(error));
-    return false;
+    return { success: false, error: getErrorMessage(error), step: 'fill' };
+  }
+
+  try {
+    await submitLoginForm(config, page);
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error), step: 'submit' };
+  }
+
+  try {
+    await waitForLoginSuccess(config, page);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error), step: 'wait' };
   }
 }
 
@@ -41,8 +62,16 @@ async function fillLoginForm(config: Config, page: Page): Promise<void> {
   const { username, password } = config.auth.credentials;
   const fields = config.auth.fields;
 
-  await page.locator(fields.username).first().fill(username || '');
-  await page.locator(fields.password).first().fill(password || '');
+  // Validate credentials are not empty
+  if (!username || !password) {
+    throw new AppError(
+      'Login credentials are missing. Set PO_GEN_USERNAME and PO_GEN_PASSWORD.',
+      'MISSING_CREDENTIALS'
+    );
+  }
+
+  await page.locator(fields.username).first().fill(username);
+  await page.locator(fields.password).first().fill(password);
 }
 
 async function submitLoginForm(config: Config, page: Page): Promise<void> {
@@ -50,15 +79,53 @@ async function submitLoginForm(config: Config, page: Page): Promise<void> {
 }
 
 async function waitForLoginSuccess(config: Config, page: Page): Promise<void> {
-  await page.waitForURL(
-    (url) => url.pathname.includes(config.auth.successUrl),
-    { timeout: TIMEOUTS.LOGIN_WAIT }
-  );
+  try {
+    await page.waitForURL(
+      (url) => url.pathname.includes(config.auth.successUrl),
+      { timeout: TIMEOUTS.LOGIN_WAIT }
+    );
+  } catch (error) {
+    // Provide clearer error message for timeout
+    if (error instanceof Error && error.name === 'TimeoutError') {
+      throw new Error(
+        `Login timeout: Expected redirect to "${config.auth.successUrl}" within ${TIMEOUTS.LOGIN_WAIT}ms. ` +
+        `Current URL: ${page.url()}. Check credentials or success URL pattern.`
+      );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Sanitize error message to remove potential credential exposure
+ * Removes common patterns where credentials might appear in error messages
+ */
+function sanitizeLoginError(error: string, config: Config): string {
+  let sanitized = error;
+
+  // Remove any occurrence of actual credentials from error message
+  const { username, password } = config.auth.credentials;
+  if (username) {
+    sanitized = sanitized.replace(new RegExp(escapeRegex(username), 'g'), '[REDACTED]');
+  }
+  if (password) {
+    sanitized = sanitized.replace(new RegExp(escapeRegex(password), 'g'), '[REDACTED]');
+  }
+
+  return sanitized;
+}
+
+/**
+ * Escape special regex characters in a string
+ */
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
  * Handle login with spinner feedback - shared by crawl and scan commands
- * @throws AppError if login fails
+ * @throws AppError if login fails with detailed error message
+ * SECURITY: Error messages are sanitized to prevent credential exposure
  */
 export async function handleAuthenticatedLogin(
   config: Config,
@@ -75,18 +142,24 @@ export async function handleAuthenticatedLogin(
   }
 
   spinner.text = 'Logging in...';
-  const success = await login(config, page);
+  const result = await login(config, page);
 
-  if (success) {
+  if (result.success) {
     spinner.succeed(SUCCESS.LOGGED_IN);
   } else {
-    spinner.fail(ERRORS.LOGIN_FAILED);
-    throw new AppError(ERRORS.LOGIN_FAILED, 'LOGIN_FAILED');
+    // TypeScript now knows result has error and step properties
+    const stepMsg = ` (failed at: ${result.step})`;
+    // SECURITY: Sanitize error message to prevent credential exposure in logs
+    const sanitizedError = sanitizeLoginError(result.error, config);
+    spinner.fail(`${ERRORS.LOGIN_FAILED}${stepMsg}`);
+    log.dim(`Error: ${sanitizedError}`);
+    throw new AppError(`${ERRORS.LOGIN_FAILED}${stepMsg}`, 'LOGIN_FAILED');
   }
 }
 
 /**
  * Crawl all URLs in the application
+ * Uses simple array queue - Array.shift() is O(n) but negligible for typical crawl sizes (<500 pages)
  */
 export async function crawlUrls(
   config: Config,
@@ -98,7 +171,8 @@ export async function crawlUrls(
   const sitemap: PageInfo[] = [];
 
   while (queue.length > 0) {
-    const item = queue.shift()!;
+    const item = queue.shift();
+    if (!item) break; // Safety check - should never happen but avoids non-null assertion
     const result = await processQueueItem(config, page, item, visited);
 
     if (!result) continue;
@@ -158,7 +232,19 @@ async function processQueueItem(
 
     return { pageInfo, links };
   } catch (error) {
-    log.warn(`Error on ${path}: ${getErrorMessage(error)}`);
+    const errorMsg = getErrorMessage(error);
+
+    // Check if page context is still valid
+    try {
+      await page.evaluate(() => true);
+    } catch {
+      // Page context is invalid - this is a critical error
+      log.error(`Page context lost on ${path}. Browser may have crashed.`);
+      throw new AppError(`Browser context lost: ${errorMsg}`, 'BROWSER_CRASH');
+    }
+
+    // Page is still valid, just this navigation failed
+    log.warn(`Error on ${path}: ${errorMsg}`);
     return null;
   }
 }
@@ -183,29 +269,61 @@ export function shouldIgnorePath(config: Config, path: string): boolean {
   return config.crawler.ignorePatterns.some((pattern) => path.includes(pattern));
 }
 
+/** Maximum retries for page navigation */
+const NAV_MAX_RETRIES = 2;
+
 async function navigateToPage(config: Config, page: Page, url: string): Promise<void> {
-  await page.goto(url, {
-    waitUntil: 'networkidle',
-    timeout: config.crawler.timeout,
-  });
+  // Retry navigation on transient network failures
+  const result = await withRetry(
+    async () => {
+      await page.goto(url, {
+        waitUntil: 'networkidle',
+        timeout: config.crawler.timeout,
+      });
+      return true; // Return non-null to indicate success
+    },
+    {
+      maxRetries: NAV_MAX_RETRIES,
+      baseDelay: 1000,
+      onRetry: (attempt, max) => {
+        log.debug(`Navigation retry ${attempt}/${max} for ${url}`);
+      },
+    }
+  );
+
+  if (!result) {
+    throw new Error(`Failed to navigate to ${url} after ${NAV_MAX_RETRIES} attempts`);
+  }
 
   await page
     .waitForSelector(config.crawler.waitForSelector, {
       timeout: TIMEOUTS.SELECTOR_WAIT,
     })
-    .catch(() => {
+    .catch((error: Error) => {
+      // Only swallow timeout errors - re-throw unexpected errors
+      if (error.name !== 'TimeoutError' && !error.message.includes('Timeout')) {
+        throw error;
+      }
       // Selector not found within timeout - continue anyway, page content may still be valid
     });
 }
 
 async function extractPageInfo(page: Page, url: string, path: string): Promise<PageInfo> {
+  // Batch all DOM queries into a single evaluate call for performance
   const info = await page.evaluate((selectors) => {
+    // Single DOM traversal - collect all data at once
+    const formSelector = selectors.form;
+    const tableSelector = selectors.table;
+    const cardSelector = selectors.card;
+    const interactiveSelector = selectors.interactive;
+
+    // Use a combined selector approach for fewer reflows
     return {
       title: document.title,
-      hasForm: document.querySelectorAll(selectors.form).length > 0,
-      hasTable: document.querySelectorAll(selectors.table).length > 0,
-      hasCards: document.querySelectorAll(selectors.card).length > 0,
-      interactiveCount: document.querySelectorAll(selectors.interactive).length,
+      hasForm: !!document.querySelector(formSelector),
+      hasTable: !!document.querySelector(tableSelector),
+      hasCards: !!document.querySelector(cardSelector),
+      interactiveCount: document.querySelectorAll(interactiveSelector).length,
     };
   }, {
     form: SELECTORS.FORM,

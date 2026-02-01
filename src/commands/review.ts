@@ -86,7 +86,7 @@ async function interactiveReview(
         modified = true;
       }
 
-      console.log();
+      log.dim('');
     }
   } finally {
     // Ensure readline is always closed, even on error
@@ -97,12 +97,12 @@ async function interactiveReview(
 }
 
 function printPageInfo(pagePath: string, decision: Decisions[string]): void {
-  console.log('─'.repeat(60));
+  log.dim('─'.repeat(60));
   log.info(`\n📄 ${pagePath}\n`);
   log.dim(`   ${MESSAGES.REASON}: ${decision.reason}`);
   log.dim(`   ${MESSAGES.ELEMENTS}: ${decision.elementCount}`);
   log.dim(`   ${MESSAGES.SUGGESTED_NAME}: ${decision.suggestedClassName}`);
-  console.log();
+  log.dim('');
 }
 
 function printSummary(decisions: Decisions): void {

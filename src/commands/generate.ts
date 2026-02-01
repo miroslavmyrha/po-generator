@@ -1,5 +1,5 @@
 import path from 'path';
-import ora from 'ora';
+import ora, { Ora } from 'ora';
 import { FILES, ERRORS, SUCCESS } from '../constants.js';
 import { log } from '../lib/logger.js';
 import { generatePageObject, savePageObject, generateIndexFile } from '../lib/generator.js';
@@ -21,7 +21,7 @@ interface GenerateContext {
   decisions: Decisions;
   outputDir: string;
   ext: string;
-  spinner: ReturnType<typeof ora>;
+  spinner: Ora;
 }
 
 export async function generateCommand(config: Config, options: GenerateOptions): Promise<void> {
@@ -47,13 +47,17 @@ export async function generateCommand(config: Config, options: GenerateOptions):
   const spinner = ora('Generating...').start();
   const context: GenerateContext = { config, decisions, outputDir, ext, spinner };
 
-  const generated = await generateAllPageObjects(context, pagesToGenerate);
+  try {
+    const generated = await generateAllPageObjects(context, pagesToGenerate);
 
-  if (generated.length > 0) {
-    await generateIndex(context, generated);
+    if (generated.length > 0) {
+      generateIndex(context, generated);
+    }
+
+    printSummary(generated, outputDir);
+  } finally {
+    spinner.stop(); // Ensure spinner is stopped on exit
   }
-
-  printSummary(generated, outputDir);
 }
 
 async function generateAllPageObjects(
@@ -121,10 +125,10 @@ function buildPageData(pagePath: string, analysis: ScanResult, decisions: Decisi
   };
 }
 
-async function generateIndex(
+function generateIndex(
   context: GenerateContext,
   generated: GeneratedFile[]
-): Promise<void> {
+): void {
   const { outputDir, ext, spinner } = context;
 
   spinner.start('Generating index file...');
