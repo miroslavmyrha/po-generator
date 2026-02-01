@@ -1,7 +1,12 @@
 import { chromium, Page } from 'playwright';
 import { config } from '../config.js';
+import { SELECTORS, TIMEOUTS, ERRORS } from '../constants.js';
+import { log } from './logger.js';
 import type { PageInfo, BrowserInstance, ModalContent, ElementInfo } from '../types.js';
 
+/**
+ * Create a new browser instance
+ */
 export async function createBrowser(headless = true): Promise<BrowserInstance> {
   const browser = await chromium.launch({ headless });
   const context = await browser.newContext();
@@ -9,6 +14,9 @@ export async function createBrowser(headless = true): Promise<BrowserInstance> {
   return { browser, context, page };
 }
 
+/**
+ * Perform login if authentication is enabled
+ */
 export async function login(page: Page): Promise<boolean> {
   if (!config.auth.enabled) return true;
 
@@ -16,124 +24,185 @@ export async function login(page: Page): Promise<boolean> {
   await page.goto(loginUrl);
 
   try {
-    // Vyplň username
-    await page.locator(config.auth.fields.username).first().fill(config.auth.credentials.username || '');
-
-    // Vyplň password
-    await page.locator(config.auth.fields.password).first().fill(config.auth.credentials.password || '');
-
-    // Submit
-    await page.locator(config.auth.fields.submit).first().click();
-
-    // Čekej na úspěšný login
-    await page.waitForURL((url) => url.pathname.includes(config.auth.successUrl), {
-      timeout: 10000,
-    });
-
+    await fillLoginForm(page);
+    await submitLoginForm(page);
+    await waitForLoginSuccess(page);
     return true;
   } catch (error) {
-    console.error('Login selhal:', (error as Error).message);
+    log.error(ERRORS.LOGIN_FAILED);
+    log.dim((error as Error).message);
     return false;
   }
 }
 
+async function fillLoginForm(page: Page): Promise<void> {
+  const { username, password } = config.auth.credentials;
+  const fields = config.auth.fields;
+
+  await page.locator(fields.username).first().fill(username || '');
+  await page.locator(fields.password).first().fill(password || '');
+}
+
+async function submitLoginForm(page: Page): Promise<void> {
+  await page.locator(config.auth.fields.submit).first().click();
+}
+
+async function waitForLoginSuccess(page: Page): Promise<void> {
+  await page.waitForURL(
+    (url) => url.pathname.includes(config.auth.successUrl),
+    { timeout: TIMEOUTS.LOGIN_WAIT }
+  );
+}
+
+/**
+ * Crawl all URLs in the application
+ */
 export async function crawlUrls(
   page: Page,
   onPageFound?: (pageInfo: PageInfo, page: Page) => Promise<void>
 ): Promise<PageInfo[]> {
   const visited = new Set<string>();
-  const queue: { url: string; depth: number }[] = [{ url: config.baseUrl, depth: 0 }];
+  const queue: CrawlQueueItem[] = [{ url: config.baseUrl, depth: 0 }];
   const sitemap: PageInfo[] = [];
 
   while (queue.length > 0) {
-    const { url, depth } = queue.shift()!;
+    const item = queue.shift()!;
+    const result = await processQueueItem(page, item, visited);
 
-    // Zkontroluj max hloubku
-    if (depth > config.crawler.maxDepth) continue;
+    if (!result) continue;
 
-    let path: string;
-    try {
-      path = new URL(url).pathname;
-    } catch {
-      continue; // Nevalidní URL
+    sitemap.push(result.pageInfo);
+
+    if (onPageFound) {
+      await onPageFound(result.pageInfo, page);
     }
 
-    // Přeskoč již navštívené
-    if (visited.has(path)) continue;
-
-    // Přeskoč ignorované patterns
-    if (config.crawler.ignorePatterns.some((p) => path.includes(p))) continue;
-
-    visited.add(path);
-
-    try {
-      await page.goto(url, { waitUntil: 'networkidle', timeout: config.crawler.timeout });
-
-      // Čekej na framework selector
-      await page
-        .waitForSelector(config.crawler.waitForSelector, {
-          timeout: config.crawler.timeout,
-        })
-        .catch(() => {});
-
-      // Získej info o stránce
-      const pageInfo = await page.evaluate(() => {
-        return {
-          title: document.title,
-          hasForm: document.querySelectorAll('form, .v-form').length > 0,
-          hasTable: document.querySelectorAll('.v-data-table, table').length > 0,
-          hasCards: document.querySelectorAll('.v-card, .card').length > 0,
-          interactiveCount:
-            document.querySelectorAll('.v-btn, .btn, button, .v-text-field, .v-select, input, select, textarea, a[href]')
-              .length,
-        };
-      });
-
-      const entry: PageInfo = {
-        url,
-        path,
-        ...pageInfo,
-        crawledAt: new Date().toISOString(),
-      };
-
-      sitemap.push(entry);
-
-      if (onPageFound) {
-        await onPageFound(entry, page);
-      }
-
-      // Najdi další odkazy
-      const links = await page.evaluate((baseUrl: string) => {
-        const anchors = document.querySelectorAll('a[href]');
-        return [...anchors]
-          .map((a) => (a as HTMLAnchorElement).href)
-          .filter((href) => href.startsWith(baseUrl))
-          .map((href) => href.split('#')[0].split('?')[0]); // Odstraň hash a query
-      }, config.baseUrl);
-
-      // Přidej nové odkazy do queue
-      for (const link of [...new Set(links)]) {
-        try {
-          const linkPath = new URL(link).pathname;
-          if (!visited.has(linkPath)) {
-            queue.push({ url: link, depth: depth + 1 });
-          }
-        } catch {
-          // Nevalidní URL - přeskoč
-        }
-      }
-    } catch (error) {
-      console.error(`Chyba na ${path}:`, (error as Error).message);
+    // Add discovered links to queue
+    for (const link of result.links) {
+      queue.push({ url: link, depth: item.depth + 1 });
     }
   }
 
   return sitemap;
 }
 
+interface CrawlQueueItem {
+  url: string;
+  depth: number;
+}
+
+interface ProcessResult {
+  pageInfo: PageInfo;
+  links: string[];
+}
+
+async function processQueueItem(
+  page: Page,
+  item: CrawlQueueItem,
+  visited: Set<string>
+): Promise<ProcessResult | null> {
+  const { url, depth } = item;
+
+  // Check max depth
+  if (depth > config.crawler.maxDepth) return null;
+
+  // Parse and validate URL
+  const path = parseUrlPath(url);
+  if (!path) return null;
+
+  // Skip if already visited
+  if (visited.has(path)) return null;
+
+  // Skip ignored patterns
+  if (shouldIgnorePath(path)) return null;
+
+  visited.add(path);
+
+  try {
+    await navigateToPage(page, url);
+    const pageInfo = await extractPageInfo(page, url, path);
+    const links = await extractLinks(page);
+
+    return { pageInfo, links };
+  } catch (error) {
+    log.warn(`Error on ${path}: ${(error as Error).message}`);
+    return null;
+  }
+}
+
+function parseUrlPath(url: string): string | null {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return null;
+  }
+}
+
+function shouldIgnorePath(path: string): boolean {
+  return config.crawler.ignorePatterns.some((pattern) => path.includes(pattern));
+}
+
+async function navigateToPage(page: Page, url: string): Promise<void> {
+  await page.goto(url, {
+    waitUntil: 'networkidle',
+    timeout: config.crawler.timeout,
+  });
+
+  await page
+    .waitForSelector(config.crawler.waitForSelector, {
+      timeout: TIMEOUTS.SELECTOR_WAIT,
+    })
+    .catch(() => {});
+}
+
+async function extractPageInfo(page: Page, url: string, path: string): Promise<PageInfo> {
+  const info = await page.evaluate((selectors) => {
+    return {
+      title: document.title,
+      hasForm: document.querySelectorAll(selectors.form).length > 0,
+      hasTable: document.querySelectorAll(selectors.table).length > 0,
+      hasCards: document.querySelectorAll(selectors.card).length > 0,
+      interactiveCount: document.querySelectorAll(selectors.interactive).length,
+    };
+  }, {
+    form: SELECTORS.FORM,
+    table: SELECTORS.TABLE,
+    card: SELECTORS.CARD,
+    interactive: SELECTORS.INTERACTIVE,
+  });
+
+  return {
+    url,
+    path,
+    ...info,
+    crawledAt: new Date().toISOString(),
+  };
+}
+
+async function extractLinks(page: Page): Promise<string[]> {
+  const baseUrl = config.baseUrl;
+
+  const links = await page.evaluate((base: string) => {
+    const anchors = document.querySelectorAll('a[href]');
+    return [...anchors]
+      .map((a) => (a as HTMLAnchorElement).href)
+      .filter((href) => href.startsWith(base))
+      .map((href) => href.split('#')[0].split('?')[0]);
+  }, baseUrl);
+
+  return [...new Set(links)];
+}
+
+/**
+ * Get full HTML content of the page
+ */
 export async function getPageHtml(page: Page): Promise<string> {
   return page.content();
 }
 
+/**
+ * Find and analyze modal dialogs
+ */
 export async function findAndClickModals(
   page: Page,
   triggers: ElementInfo[]
@@ -141,29 +210,31 @@ export async function findAndClickModals(
   const modalContents: ModalContent[] = [];
 
   for (const trigger of triggers) {
-    try {
-      // Klikni na trigger
-      await page.locator(trigger.selector).first().click();
-
-      // Čekej na modal
-      const modalSelector = '.v-dialog, .v-overlay__content .v-card, .v-navigation-drawer--active, .modal, [role="dialog"]';
-      await page.waitForSelector(modalSelector, { timeout: 2000 });
-
-      // Získej obsah
-      const modalHtml = await page.locator(modalSelector).first().innerHTML();
-
-      modalContents.push({
-        trigger: trigger.name,
-        html: modalHtml,
-      });
-
-      // Zavři modal
-      await page.keyboard.press('Escape');
-      await page.waitForTimeout(300);
-    } catch {
-      // Modal se neotevřel - ok
+    const content = await tryOpenModal(page, trigger);
+    if (content) {
+      modalContents.push(content);
     }
   }
 
   return modalContents;
+}
+
+async function tryOpenModal(page: Page, trigger: ElementInfo): Promise<ModalContent | null> {
+  try {
+    await page.locator(trigger.selector).first().click();
+    await page.waitForSelector(SELECTORS.MODAL, { timeout: TIMEOUTS.MODAL_WAIT });
+
+    const html = await page.locator(SELECTORS.MODAL).first().innerHTML();
+
+    await closeModal(page);
+
+    return { trigger: trigger.name, html };
+  } catch {
+    return null;
+  }
+}
+
+async function closeModal(page: Page): Promise<void> {
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
 }

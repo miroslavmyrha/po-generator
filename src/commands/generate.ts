@@ -1,122 +1,174 @@
 import fs from 'fs';
 import path from 'path';
-import chalk from 'chalk';
 import ora from 'ora';
 import { config } from '../config.js';
+import { FILES, ERRORS, SUCCESS } from '../constants.js';
+import { log } from '../lib/logger.js';
 import { generatePageObject, savePageObject, generateIndexFile } from '../lib/generator.js';
 import type { GenerateOptions, Decisions } from '../types.js';
 
-interface GeneratedInfo {
+interface GeneratedFile {
   className: string;
   filePath: string;
-  path: string;
+  pagePath: string;
 }
 
 export async function generateCommand(options: GenerateOptions): Promise<void> {
-  console.log(chalk.blue('\n📝 Generuji Page Objects...\n'));
+  log.info('\n📝 Generating Page Objects...\n');
 
-  const outputDir = options.output || path.join(config.output.dir, 'pages');
+  const outputDir = options.output || path.join(config.output.dir, FILES.PAGES_DIR);
   const typescript = options.typescript || false;
   const ext = typescript ? 'ts' : 'js';
 
-  // Načti decisions
-  const decisionsPath = path.join(config.output.dir, 'decisions.json');
+  const decisions = loadDecisions();
+  const pagesToGenerate = getPageObjectPaths(decisions);
 
-  if (!fs.existsSync(decisionsPath)) {
-    console.error(chalk.red('Decisions neexistují. Nejdřív spusť "po-gen scan".'));
-    process.exit(1);
-  }
-
-  const decisions: Decisions = JSON.parse(fs.readFileSync(decisionsPath, 'utf-8'));
-
-  // Filtruj pouze page_object
-  const toGenerate = Object.entries(decisions)
-    .filter(([, d]) => d.decision === 'page_object')
-    .map(([pagePath]) => pagePath);
-
-  if (toGenerate.length === 0) {
-    console.log(chalk.yellow('Žádné stránky k generování.'));
-    console.log(chalk.gray('Uprav decisions.json nebo spusť "po-gen review".'));
+  if (pagesToGenerate.length === 0) {
+    log.warn(ERRORS.NO_PAGES_TO_GENERATE);
     return;
   }
 
-  console.log(chalk.gray(`Generuji ${toGenerate.length} Page Objects...\n`));
+  log.dim(`Generating ${pagesToGenerate.length} Page Objects...\n`);
 
-  const spinner = ora('Generuji...').start();
-  const generated: GeneratedInfo[] = [];
-  const scannedDir = path.join(config.output.dir, 'scanned');
+  const spinner = ora('Generating...').start();
+  const generated = await generateAllPageObjects(pagesToGenerate, decisions, outputDir, ext, spinner);
 
-  for (const pagePath of toGenerate) {
-    const fileName = pagePath.replace(/\//g, '_').replace(/^_/, '') || 'home';
-    const scanFile = path.join(scannedDir, `${fileName}.json`);
-
-    if (!fs.existsSync(scanFile)) {
-      spinner.warn(`Scan výsledek pro ${pagePath} neexistuje`);
-      continue;
-    }
-
-    const scanData = JSON.parse(fs.readFileSync(scanFile, 'utf-8'));
-
-    if (!scanData.analysis) {
-      spinner.warn(`Žádná analýza pro ${pagePath}`);
-      continue;
-    }
-
-    spinner.text = `Generuji: ${pagePath}`;
-
-    try {
-      // Připrav data pro generátor
-      const pageData = {
-        pageAnalysis: {
-          url: pagePath,
-          purpose: scanData.analysis.pageAnalysis?.purpose || '',
-          suggestedClassName: decisions[pagePath]?.suggestedClassName ||
-            scanData.analysis.pageAnalysis?.suggestedClassName,
-        },
-        elements: scanData.analysis.elements || [],
-        modals: scanData.analysis.modals || [],
-      };
-
-      // Generuj kód
-      const { code, className } = generatePageObject(pageData, { typescript });
-
-      // Ulož
-      const filePath = savePageObject(code, className, outputDir, ext);
-
-      generated.push({ className, filePath, path: pagePath });
-      spinner.succeed(`${className} → ${path.basename(filePath)}`);
-
-    } catch (error) {
-      spinner.warn(`Chyba při generování ${pagePath}: ${(error as Error).message}`);
-    }
-  }
-
-  // Generuj index soubor
   if (generated.length > 0) {
-    spinner.start('Generuji index soubor...');
-    const classNames = generated.map((g) => g.className);
-    const indexPath = generateIndexFile(classNames, outputDir, ext);
-    spinner.succeed(`Index → ${path.basename(indexPath)}`);
+    await generateIndex(generated, outputDir, ext, spinner);
   }
 
-  // Souhrn
-  console.log(chalk.green(`\n✅ Vygenerováno ${generated.length} Page Objects`));
-  console.log(chalk.gray(`   Výstup: ${outputDir}/`));
+  printSummary(generated, outputDir);
+}
 
-  console.log(chalk.blue('\n📁 Soubory:'));
+function loadDecisions(): Decisions {
+  const decisionsPath = path.join(config.output.dir, FILES.DECISIONS);
+
+  if (!fs.existsSync(decisionsPath)) {
+    log.error(ERRORS.DECISIONS_NOT_FOUND);
+    process.exit(1);
+  }
+
+  return JSON.parse(fs.readFileSync(decisionsPath, 'utf-8'));
+}
+
+function getPageObjectPaths(decisions: Decisions): string[] {
+  return Object.entries(decisions)
+    .filter(([, d]) => d.decision === 'page_object')
+    .map(([pagePath]) => pagePath);
+}
+
+async function generateAllPageObjects(
+  pagePaths: string[],
+  decisions: Decisions,
+  outputDir: string,
+  ext: string,
+  spinner: ReturnType<typeof ora>
+): Promise<GeneratedFile[]> {
+  const generated: GeneratedFile[] = [];
+  const scannedDir = path.join(config.output.dir, FILES.SCANNED_DIR);
+
+  for (const pagePath of pagePaths) {
+    const result = await generateSinglePageObject(pagePath, decisions, scannedDir, outputDir, ext, spinner);
+    if (result) {
+      generated.push(result);
+    }
+  }
+
+  return generated;
+}
+
+async function generateSinglePageObject(
+  pagePath: string,
+  decisions: Decisions,
+  scannedDir: string,
+  outputDir: string,
+  ext: string,
+  spinner: ReturnType<typeof ora>
+): Promise<GeneratedFile | null> {
+  const fileName = pathToFileName(pagePath);
+  const scanFile = path.join(scannedDir, `${fileName}.json`);
+
+  if (!fs.existsSync(scanFile)) {
+    spinner.warn(ERRORS.SCAN_NOT_FOUND(pagePath));
+    return null;
+  }
+
+  const scanData = JSON.parse(fs.readFileSync(scanFile, 'utf-8'));
+
+  if (!scanData.analysis) {
+    spinner.warn(`No analysis for ${pagePath}`);
+    return null;
+  }
+
+  spinner.text = `Generating: ${pagePath}`;
+
+  try {
+    const pageData = buildPageData(pagePath, scanData, decisions);
+    const { code, className } = generatePageObject(pageData, { typescript: ext === 'ts' });
+    const filePath = savePageObject(code, className, outputDir, ext);
+
+    spinner.succeed(`${className} → ${path.basename(filePath)}`);
+
+    return { className, filePath, pagePath };
+  } catch (error) {
+    spinner.warn(`Error generating ${pagePath}: ${(error as Error).message}`);
+    return null;
+  }
+}
+
+function buildPageData(pagePath: string, scanData: any, decisions: Decisions) {
+  return {
+    pageAnalysis: {
+      url: pagePath,
+      purpose: scanData.analysis.pageAnalysis?.purpose || '',
+      suggestedClassName:
+        decisions[pagePath]?.suggestedClassName ||
+        scanData.analysis.pageAnalysis?.suggestedClassName,
+    },
+    elements: scanData.analysis.elements || [],
+    modals: scanData.analysis.modals || [],
+  };
+}
+
+async function generateIndex(
+  generated: GeneratedFile[],
+  outputDir: string,
+  ext: string,
+  spinner: ReturnType<typeof ora>
+): Promise<void> {
+  spinner.start('Generating index file...');
+  const classNames = generated.map((g) => g.className);
+  const indexPath = generateIndexFile(classNames, outputDir, ext);
+  spinner.succeed(`Index → ${path.basename(indexPath)}`);
+}
+
+function printSummary(generated: GeneratedFile[], outputDir: string): void {
+  log.success(SUCCESS.GENERATE_COMPLETE(generated.length));
+  log.dim(`Output: ${outputDir}/`);
+
+  log.info('\n📁 Files:');
   for (const g of generated) {
-    console.log(chalk.gray(`   ${g.className} (${g.path})`));
+    log.dim(`   ${g.className} (${g.pagePath})`);
   }
 
-  // Příklad použití
-  console.log(chalk.blue('\n💡 Příklad použití v testu:\n'));
-  if (generated.length > 0) {
-    const example = generated[0];
-    console.log(chalk.gray(`   import { ${example.className} } from './pages';`));
-    console.log(chalk.gray(`   `));
-    console.log(chalk.gray(`   test('example', async ({ page }) => {`));
-    console.log(chalk.gray(`     const ${example.className.replace('Page', '').toLowerCase()} = new ${example.className}(page);`));
-    console.log(chalk.gray(`     await ${example.className.replace('Page', '').toLowerCase()}.goto();`));
-    console.log(chalk.gray(`   });`));
-  }
+  printUsageExample(generated);
+}
+
+function printUsageExample(generated: GeneratedFile[]): void {
+  if (generated.length === 0) return;
+
+  const example = generated[0];
+  const varName = example.className.replace('Page', '').toLowerCase();
+
+  log.info('\n💡 Usage example:\n');
+  log.dim(`   import { ${example.className} } from './pages';`);
+  log.dim('');
+  log.dim(`   test('example', async ({ page }) => {`);
+  log.dim(`     const ${varName} = new ${example.className}(page);`);
+  log.dim(`     await ${varName}.goto();`);
+  log.dim('   });');
+}
+
+function pathToFileName(urlPath: string): string {
+  return urlPath.replace(/\//g, '_').replace(/^_/, '') || 'home';
 }

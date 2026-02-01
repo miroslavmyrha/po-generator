@@ -1,4 +1,15 @@
-import type { Page, Browser, BrowserContext, Locator } from 'playwright';
+import type { Page, Browser, BrowserContext } from 'playwright';
+import type { Framework } from './constants.js';
+
+// Re-export schema types
+export type {
+  ElementInfo,
+  PageAnalysis,
+  ModalInfo,
+  NavigationInfo,
+  ScanResult,
+  ModalAnalysis,
+} from './schemas.js';
 
 // Config types
 export interface AuthConfig {
@@ -51,6 +62,13 @@ export interface FrameworkDefaults {
   };
 }
 
+// Browser types
+export interface BrowserInstance {
+  browser: Browser;
+  context: BrowserContext;
+  page: Page;
+}
+
 // Crawler types
 export interface PageInfo {
   url: string;
@@ -61,58 +79,6 @@ export interface PageInfo {
   hasCards: boolean;
   interactiveCount: number;
   crawledAt: string;
-}
-
-export interface BrowserInstance {
-  browser: Browser;
-  context: BrowserContext;
-  page: Page;
-}
-
-// AI Scanner types
-export interface PageAnalysis {
-  url: string;
-  purpose: string;
-  shouldBePageObject: boolean | 'ask_user';
-  reason: string;
-  suggestedClassName: string;
-}
-
-export interface ElementInfo {
-  name: string;
-  component: string;
-  selector: string;
-  action: 'click' | 'fill' | 'select' | 'check' | 'toggle' | 'none';
-  description: string;
-  importance: 'high' | 'medium' | 'low';
-  isModalTrigger: boolean;
-}
-
-export interface ModalInfo {
-  triggerElement: string;
-  expectedContent: string;
-}
-
-export interface NavigationInfo {
-  element: string;
-  targetUrl: string;
-}
-
-export interface ScanResult {
-  pageAnalysis: PageAnalysis;
-  elements: ElementInfo[];
-  modals: ModalInfo[];
-  navigation: NavigationInfo[];
-}
-
-export interface ModalAnalysis {
-  modalName: string;
-  purpose: string;
-  elements: ElementInfo[];
-  actions: {
-    confirm?: string;
-    cancel?: string;
-  };
 }
 
 export interface ModalContent {
@@ -128,13 +94,11 @@ export interface Decision {
   elementCount: number;
 }
 
-export interface Decisions {
-  [path: string]: Decision;
-}
+export type Decisions = Record<string, Decision>;
 
 // Scan result with page info
 export interface FullScanResult extends PageInfo {
-  analysis: ScanResult;
+  analysis: import('./schemas.js').ScanResult;
 }
 
 // Generator types
@@ -157,7 +121,7 @@ export interface CrawlOptions {
 
 export interface ScanOptions {
   page?: string;
-  framework?: string;
+  framework?: Framework;
   retry?: string;
 }
 
@@ -167,13 +131,14 @@ export interface GenerateOptions {
 }
 
 export interface RunOptions {
-  framework?: string;
+  framework?: Framework;
   skipReview?: boolean;
 }
 
 export interface AnalyzeOptions {
   retries?: number;
-  framework?: string;
+  framework?: Framework;
 }
 
-export type Framework = 'vuetify' | 'symfony' | 'generic';
+// Export Framework type
+export type { Framework };

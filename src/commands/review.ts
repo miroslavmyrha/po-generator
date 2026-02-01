@@ -1,62 +1,73 @@
 import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
-import chalk from 'chalk';
 import { config } from '../config.js';
+import { FILES, ERRORS, SUCCESS, MESSAGES } from '../constants.js';
+import { log } from '../lib/logger.js';
 import type { Decisions } from '../types.js';
 
 export async function reviewCommand(): Promise<void> {
-  console.log(chalk.blue('\n🔍 Interaktivní review rozhodnutí...\n'));
+  log.info('\n🔍 Interactive decision review...\n');
 
-  const decisionsPath = path.join(config.output.dir, 'decisions.json');
-
-  if (!fs.existsSync(decisionsPath)) {
-    console.error(chalk.red('Decisions neexistují. Nejdřív spusť "po-gen scan".'));
-    process.exit(1);
-  }
-
-  const decisions: Decisions = JSON.parse(fs.readFileSync(decisionsPath, 'utf-8'));
-
-  // Najdi stránky k rozhodnutí
-  const toReview = Object.entries(decisions)
-    .filter(([, d]) => d.decision === 'ask_user');
+  const decisions = loadDecisions();
+  const toReview = findPagesToReview(decisions);
 
   if (toReview.length === 0) {
-    console.log(chalk.green('Žádné stránky k manuálnímu rozhodnutí.'));
-    console.log(chalk.gray('\nAktuální stav:'));
-
-    const pageObjects = Object.entries(decisions).filter(([, d]) => d.decision === 'page_object');
-    const skipped = Object.entries(decisions).filter(([, d]) => d.decision === 'skip');
-
-    console.log(chalk.green(`   ✅ Page Objects: ${pageObjects.length}`));
-    console.log(chalk.gray(`   ⏭️  Přeskočeno: ${skipped.length}`));
-
-    console.log(chalk.yellow('\n💡 Tip: Spusť "po-gen generate" pro vytvoření Page Objects.'));
+    printNoReviewNeeded(decisions);
     return;
   }
 
-  console.log(chalk.yellow(`Nalezeno ${toReview.length} stránek k rozhodnutí.\n`));
+  log.warn(MESSAGES.PAGES_TO_REVIEW(toReview.length));
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  const modified = await interactiveReview(toReview, decisions);
 
-  const question = (prompt: string): Promise<string> => new Promise((resolve) => rl.question(prompt, resolve));
+  if (modified) {
+    saveDecisions(decisions);
+    log.success(SUCCESS.CHANGES_SAVED);
+  }
+
+  printSummary(decisions);
+}
+
+function loadDecisions(): Decisions {
+  const decisionsPath = path.join(config.output.dir, FILES.DECISIONS);
+
+  if (!fs.existsSync(decisionsPath)) {
+    log.error(ERRORS.DECISIONS_NOT_FOUND);
+    process.exit(1);
+  }
+
+  return JSON.parse(fs.readFileSync(decisionsPath, 'utf-8'));
+}
+
+function findPagesToReview(decisions: Decisions): [string, Decisions[string]][] {
+  return Object.entries(decisions).filter(([, d]) => d.decision === 'ask_user');
+}
+
+function printNoReviewNeeded(decisions: Decisions): void {
+  log.success(MESSAGES.NO_PAGES_TO_REVIEW);
+  log.dim(`\n${MESSAGES.CURRENT_STATE}`);
+
+  const counts = countDecisions(decisions);
+  log.success(`   ${MESSAGES.PAGE_OBJECTS}: ${counts.pageObject}`);
+  log.dim(`   ${MESSAGES.SKIPPED}: ${counts.skip}`);
+
+  log.warn('\n💡 Tip: Run "po-gen generate" to create Page Objects.');
+}
+
+async function interactiveReview(
+  toReview: [string, Decisions[string]][],
+  decisions: Decisions
+): Promise<boolean> {
+  const rl = createReadlineInterface();
+  const question = createQuestionFn(rl);
 
   let modified = false;
 
   for (const [pagePath, decision] of toReview) {
-    console.log(chalk.blue('─'.repeat(60)));
-    console.log(chalk.white(`\n📄 ${pagePath}\n`));
-    console.log(chalk.gray(`   Důvod: ${decision.reason}`));
-    console.log(chalk.gray(`   Elementy: ${decision.elementCount}`));
-    console.log(chalk.gray(`   Navrhovaný název: ${decision.suggestedClassName}`));
-    console.log();
+    printPageInfo(pagePath, decision);
 
-    const answer = await question(
-      chalk.yellow('   [p] Page Object  [s] Skip  [Enter] Přeskočit  [q] Konec: ')
-    );
+    const answer = await question(`   ${MESSAGES.REVIEW_PROMPT}`);
 
     if (answer.toLowerCase() === 'q') {
       break;
@@ -64,11 +75,11 @@ export async function reviewCommand(): Promise<void> {
 
     if (answer.toLowerCase() === 'p') {
       decisions[pagePath].decision = 'page_object';
-      console.log(chalk.green('   → Označeno jako Page Object'));
+      log.success(`   → ${MESSAGES.MARKED_AS_PAGE_OBJECT}`);
       modified = true;
     } else if (answer.toLowerCase() === 's') {
       decisions[pagePath].decision = 'skip';
-      console.log(chalk.gray('   → Přeskočeno'));
+      log.dim(`   → ${MESSAGES.MARKED_AS_SKIP}`);
       modified = true;
     }
 
@@ -76,24 +87,52 @@ export async function reviewCommand(): Promise<void> {
   }
 
   rl.close();
+  return modified;
+}
 
-  // Ulož změny
-  if (modified) {
-    fs.writeFileSync(decisionsPath, JSON.stringify(decisions, null, 2));
-    console.log(chalk.green('\n✅ Změny uloženy.'));
+function createReadlineInterface(): readline.Interface {
+  return readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+}
+
+function createQuestionFn(rl: readline.Interface): (prompt: string) => Promise<string> {
+  return (prompt: string) => new Promise((resolve) => rl.question(prompt, resolve));
+}
+
+function printPageInfo(pagePath: string, decision: Decisions[string]): void {
+  console.log('─'.repeat(60));
+  log.info(`\n📄 ${pagePath}\n`);
+  log.dim(`   ${MESSAGES.REASON}: ${decision.reason}`);
+  log.dim(`   ${MESSAGES.ELEMENTS}: ${decision.elementCount}`);
+  log.dim(`   ${MESSAGES.SUGGESTED_NAME}: ${decision.suggestedClassName}`);
+  console.log();
+}
+
+function saveDecisions(decisions: Decisions): void {
+  const decisionsPath = path.join(config.output.dir, FILES.DECISIONS);
+  fs.writeFileSync(decisionsPath, JSON.stringify(decisions, null, 2));
+}
+
+function printSummary(decisions: Decisions): void {
+  const counts = countDecisions(decisions);
+
+  log.info(`\n📊 ${MESSAGES.CURRENT_STATE}`);
+  log.success(`   ${MESSAGES.PAGE_OBJECTS}: ${counts.pageObject}`);
+  log.dim(`   ${MESSAGES.SKIPPED}: ${counts.skip}`);
+  log.warn(`   ${MESSAGES.REMAINING}: ${counts.askUser}`);
+
+  if (counts.askUser === 0 && counts.pageObject > 0) {
+    log.warn('\n💡 Tip: Run "po-gen generate" to create Page Objects.');
   }
+}
 
-  // Souhrn
-  const pageObjects = Object.entries(decisions).filter(([, d]) => d.decision === 'page_object');
-  const skipped = Object.entries(decisions).filter(([, d]) => d.decision === 'skip');
-  const remaining = Object.entries(decisions).filter(([, d]) => d.decision === 'ask_user');
-
-  console.log(chalk.blue('\n📊 Aktuální stav:'));
-  console.log(chalk.green(`   ✅ Page Objects: ${pageObjects.length}`));
-  console.log(chalk.gray(`   ⏭️  Přeskočeno: ${skipped.length}`));
-  console.log(chalk.yellow(`   ❓ Zbývá: ${remaining.length}`));
-
-  if (remaining.length === 0 && pageObjects.length > 0) {
-    console.log(chalk.yellow('\n💡 Tip: Spusť "po-gen generate" pro vytvoření Page Objects.'));
-  }
+function countDecisions(decisions: Decisions) {
+  const values = Object.values(decisions);
+  return {
+    pageObject: values.filter((d) => d.decision === 'page_object').length,
+    skip: values.filter((d) => d.decision === 'skip').length,
+    askUser: values.filter((d) => d.decision === 'ask_user').length,
+  };
 }
