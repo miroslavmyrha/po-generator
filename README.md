@@ -21,8 +21,8 @@ Crawls your application, analyzes pages with AI (via OpenAI-compatible API), and
 ```bash
 git clone https://github.com/miroslavmyrha/po-generator.git
 cd po-generator
-npm install
-npm link
+bun install
+bun link
 ```
 
 Now you can use `po-gen` command anywhere:
@@ -38,7 +38,7 @@ po-gen run
 ```bash
 git clone https://github.com/miroslavmyrha/po-generator.git
 cd po-generator
-npm install
+bun install
 node --import tsx bin/po-gen.ts --help
 ```
 
@@ -253,10 +253,10 @@ Works with any OpenAI-compatible API:
 
 ```bash
 # Run tests
-npm test
+bun run test
 
 # Type check
-npm run typecheck
+bun run typecheck
 ```
 
 ## License
