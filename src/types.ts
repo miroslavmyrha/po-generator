@@ -23,6 +23,10 @@ export type {
   NavigationInfo,
   ScanResult,
   ModalAnalysis,
+  TestStep,
+  TestAssertion,
+  TestCase,
+  TestSuite,
 } from './schemas.js';
 
 // Config types
@@ -143,6 +147,18 @@ export interface GenerateOptions {
 export interface RunOptions {
   framework?: Framework;
   skipReview?: boolean;
+  skipTests?: boolean;
+}
+
+export interface TestGenOptions {
+  output?: string;
+  retry?: string;
+}
+
+export interface GeneratedTestFile {
+  code: string;
+  suiteName: string;
+  fileName: string;
 }
 
 export interface AnalyzeOptions {

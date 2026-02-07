@@ -68,6 +68,35 @@ export const ModalAnalysisSchema = z.object({
   }).default({}),
 });
 
+// Test step schema - single action in a test case
+export const TestStepSchema = z.object({
+  method: z.string()
+    .max(MAX_LENGTHS.IDENTIFIER, 'Method name too long')
+    .regex(jsIdentifierPattern, 'Method name must be valid JS identifier'),
+  args: z.array(z.string().max(MAX_LENGTHS.SELECTOR, 'Argument too long')).default([]),
+  description: z.string().max(MAX_LENGTHS.DESCRIPTION, 'Step description too long').optional(),
+});
+
+// Test assertion schema - expected outcome
+export const TestAssertionSchema = z.object({
+  type: z.enum(['url', 'visible', 'hidden', 'text', 'count', 'enabled', 'disabled']),
+  selector: z.string().max(MAX_LENGTHS.SELECTOR, 'Selector too long').optional(),
+  value: z.string().max(MAX_LENGTHS.DESCRIPTION, 'Assertion value too long').optional(),
+});
+
+// Test case schema - single test scenario
+export const TestCaseSchema = z.object({
+  name: z.string().max(MAX_LENGTHS.DESCRIPTION, 'Test name too long'),
+  steps: z.array(TestStepSchema).min(1, 'Test must have at least one step'),
+  assertions: z.array(TestAssertionSchema).min(1, 'Test must have at least one assertion'),
+});
+
+// Test suite schema - collection of test cases for a page
+export const TestSuiteSchema = z.object({
+  suiteName: z.string().max(MAX_LENGTHS.DESCRIPTION, 'Suite name too long'),
+  testCases: z.array(TestCaseSchema).min(1, 'Suite must have at least one test case'),
+});
+
 // Type exports from schemas
 export type ElementInfo = z.infer<typeof ElementSchema>;
 export type PageAnalysis = z.infer<typeof PageAnalysisSchema>;
@@ -75,6 +104,10 @@ export type ModalInfo = z.infer<typeof ModalInfoSchema>;
 export type NavigationInfo = z.infer<typeof NavigationSchema>;
 export type ScanResult = z.infer<typeof ScanResultSchema>;
 export type ModalAnalysis = z.infer<typeof ModalAnalysisSchema>;
+export type TestStep = z.infer<typeof TestStepSchema>;
+export type TestAssertion = z.infer<typeof TestAssertionSchema>;
+export type TestCase = z.infer<typeof TestCaseSchema>;
+export type TestSuite = z.infer<typeof TestSuiteSchema>;
 
 /**
  * Validation result with optional error details
@@ -121,6 +154,28 @@ export function validateModalAnalysis(data: unknown): ModalAnalysis | null {
  */
 export function validateModalAnalysisWithErrors(data: unknown): ValidationResult<ModalAnalysis> {
   const result = ModalAnalysisSchema.safeParse(data);
+  if (result.success) {
+    return { data: result.data };
+  }
+  return {
+    data: null,
+    errors: result.error.issues.map(e => `${String(e.path.join('.'))}: ${e.message}`),
+  };
+}
+
+/**
+ * Validate test suite data against schema
+ */
+export function validateTestSuite(data: unknown): TestSuite | null {
+  const result = TestSuiteSchema.safeParse(data);
+  return result.success ? result.data : null;
+}
+
+/**
+ * Validate test suite with detailed error information
+ */
+export function validateTestSuiteWithErrors(data: unknown): ValidationResult<TestSuite> {
+  const result = TestSuiteSchema.safeParse(data);
   if (result.success) {
     return { data: result.data };
   }

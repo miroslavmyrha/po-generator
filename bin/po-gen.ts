@@ -10,6 +10,7 @@ import { scanCommand } from '../src/commands/scan.js';
 import { generateCommand } from '../src/commands/generate.js';
 import { reviewCommand } from '../src/commands/review.js';
 import { runCommand } from '../src/commands/run.js';
+import { testGenCommand } from '../src/commands/test-gen.js';
 import { initCommand } from '../src/commands/init.js';
 import { log } from '../src/lib/logger.js';
 import { runCleanupHandlers } from '../src/lib/utils.js';
@@ -95,12 +96,26 @@ program
   .description('Interactive review of AI decisions')
   .action(wrapCommand(() => reviewCommand(config)));
 
+// Test-gen - generate Playwright test files from scan results
+program
+  .command('test-gen')
+  .description('Generate Playwright test files from scan results')
+  .option('-o, --output <dir>', 'Output directory for test files')
+  .option('--retry <number>', 'Number of retries on AI error', '3')
+  .action(
+    wrapCommand(async (options) => {
+      requireConfig(config);
+      await testGenCommand(config, options);
+    })
+  );
+
 // Run - execute full workflow
 program
   .command('run')
-  .description('Run full workflow: crawl → scan → generate')
+  .description('Run full workflow: crawl → scan → generate → test-gen')
   .option('-f, --framework <type>', 'Framework: vuetify, symfony, generic', config.framework)
   .option('--skip-review', 'Skip interactive review')
+  .option('--skip-tests', 'Skip test generation')
   .action(
     wrapCommand(async (options) => {
       requireConfig(config);

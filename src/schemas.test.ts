@@ -2,8 +2,14 @@ import { describe, it, expect } from 'vitest';
 import {
   validateScanResult,
   validateModalAnalysis,
+  validateTestSuite,
+  validateTestSuiteWithErrors,
   ElementSchema,
   ScanResultSchema,
+  TestSuiteSchema,
+  TestCaseSchema,
+  TestStepSchema,
+  TestAssertionSchema,
 } from './schemas.js';
 
 /**
@@ -297,6 +303,132 @@ describe('validateModalAnalysis', () => {
 
     const result = validateModalAnalysis(modalWithInvalidElement);
     expect(result).toBeNull();
+  });
+});
+
+describe('TestSuiteSchema', () => {
+  const validTestSuite = {
+    suiteName: 'Login Page Tests',
+    testCases: [
+      {
+        name: 'should login successfully',
+        steps: [
+          { method: 'goto', args: [] },
+          { method: 'fillEmailInput', args: ['user@test.com'] },
+        ],
+        assertions: [
+          { type: 'url', value: '/dashboard' },
+        ],
+      },
+    ],
+  };
+
+  it('validates a complete test suite', () => {
+    const result = validateTestSuite(validTestSuite);
+    expect(result).not.toBeNull();
+    expect(result?.suiteName).toBe('Login Page Tests');
+    expect(result?.testCases).toHaveLength(1);
+  });
+
+  it('validates test steps with default args', () => {
+    const suite = {
+      suiteName: 'Test',
+      testCases: [{
+        name: 'test',
+        steps: [{ method: 'goto' }], // args missing, should default to []
+        assertions: [{ type: 'visible', selector: '.ok' }],
+      }],
+    };
+
+    const result = validateTestSuite(suite);
+    expect(result).not.toBeNull();
+    expect(result?.testCases[0].steps[0].args).toEqual([]);
+  });
+
+  it('validates all assertion types', () => {
+    const types = ['url', 'visible', 'hidden', 'text', 'count', 'enabled', 'disabled'] as const;
+    for (const type of types) {
+      const result = TestAssertionSchema.safeParse({ type, selector: '.test' });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it('rejects invalid assertion type', () => {
+    const result = TestAssertionSchema.safeParse({ type: 'invalid', selector: '.test' });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects empty test cases array', () => {
+    const suite = { suiteName: 'Empty', testCases: [] };
+    const result = validateTestSuite(suite);
+    expect(result).toBeNull();
+  });
+
+  it('rejects test case with no steps', () => {
+    const suite = {
+      suiteName: 'Test',
+      testCases: [{
+        name: 'no steps',
+        steps: [],
+        assertions: [{ type: 'visible', selector: '.ok' }],
+      }],
+    };
+
+    const result = validateTestSuite(suite);
+    expect(result).toBeNull();
+  });
+
+  it('rejects test case with no assertions', () => {
+    const suite = {
+      suiteName: 'Test',
+      testCases: [{
+        name: 'no assertions',
+        steps: [{ method: 'goto', args: [] }],
+        assertions: [],
+      }],
+    };
+
+    const result = validateTestSuite(suite);
+    expect(result).toBeNull();
+  });
+
+  it('rejects invalid method name (not a JS identifier)', () => {
+    const result = TestStepSchema.safeParse({
+      method: '123invalid',
+      args: [],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts valid method names', () => {
+    const result = TestStepSchema.safeParse({
+      method: 'fillEmailInput',
+      args: ['test@test.com'],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('returns null for completely invalid input', () => {
+    const result = validateTestSuite({ foo: 'bar' });
+    expect(result).toBeNull();
+  });
+
+  it('returns null for null input', () => {
+    const result = validateTestSuite(null);
+    expect(result).toBeNull();
+  });
+
+  it('provides detailed errors via validateTestSuiteWithErrors', () => {
+    const result = validateTestSuiteWithErrors({ foo: 'bar' });
+    expect(result.data).toBeNull();
+    expect(result.errors).toBeDefined();
+    expect(result.errors!.length).toBeGreaterThan(0);
+  });
+
+  it('returns data via validateTestSuiteWithErrors for valid input', () => {
+    const result = validateTestSuiteWithErrors(validTestSuite);
+    expect(result.data).not.toBeNull();
+    expect(result.errors).toBeUndefined();
   });
 });
 

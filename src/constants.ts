@@ -9,6 +9,9 @@ export const ERRORS = {
   INVALID_URL: (url: string) => `Invalid URL: ${url}`,
   CONFIG_MISSING: (field: string) => `Configuration error: ${field} is required.`,
   NO_PAGES_TO_GENERATE: 'No pages to generate. Edit decisions.json or run "po-gen review".',
+  NO_PAGE_OBJECTS: 'No Page Objects found. Run "po-gen generate" first.',
+  TEST_GEN_FAILED: (page: string) => `Test generation failed for "${page}".`,
+  AI_TEST_GEN_FAILED: (attempts: number) => `AI test scenario generation failed after ${attempts} attempts.`,
   WORKFLOW_FAILED: (msg: string) => `Workflow failed: ${msg}`,
 } as const;
 
@@ -18,6 +21,7 @@ export const SUCCESS = {
   CRAWL_COMPLETE: (count: number) => `Found ${count} pages`,
   SCAN_COMPLETE: 'Scan complete',
   GENERATE_COMPLETE: (count: number) => `Generated ${count} Page Objects`,
+  TEST_GEN_COMPLETE: (count: number) => `Generated ${count} test files`,
   CONFIG_SAVED: 'Configuration saved to .env',
   CHANGES_SAVED: 'Changes saved',
   WORKFLOW_COMPLETE: (seconds: number) => `Workflow completed in ${seconds}s`,
@@ -45,6 +49,7 @@ export const PHASES = {
   SCANNING: 'Phase 2: AI Scanning',
   REVIEW: 'Phase 3: Review',
   GENERATING: 'Phase 4: Generating Page Objects',
+  TEST_GEN: 'Phase 5: Generating Tests',
 } as const;
 
 // File names
@@ -53,6 +58,7 @@ export const FILES = {
   DECISIONS: 'decisions.json',
   SCANNED_DIR: 'scanned',
   PAGES_DIR: 'pages',
+  TESTS_DIR: 'tests',
   INDEX: 'index',
 } as const;
 

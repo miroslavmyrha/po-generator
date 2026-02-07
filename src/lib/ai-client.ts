@@ -4,9 +4,9 @@ import { FRAMEWORK_PROMPTS, FRAMEWORK_MODAL_SELECTORS } from '../frameworks.js';
 import type { Framework } from '../frameworks.js';
 import { log } from './logger.js';
 import { getErrorMessage, withRetry, registerCleanup } from './utils.js';
-import { validateScanResult, validateModalAnalysis } from '../schemas.js';
+import { validateScanResult, validateModalAnalysis, validateTestSuite } from '../schemas.js';
 import { AppError } from '../types.js';
-import type { Config, ScanResult, ModalAnalysis, AnalyzeOptions } from '../types.js';
+import type { Config, ScanResult, ModalAnalysis, TestSuite, AnalyzeOptions } from '../types.js';
 
 // Cached OpenAI client instance
 let cachedClient: OpenAI | null = null;
@@ -187,6 +187,112 @@ export async function analyzeModalContent(
       },
     }
   );
+}
+
+/**
+ * Generate test scenarios for a page using AI
+ * @param config - Application configuration
+ * @param scanResult - Scan result with page elements
+ * @param pageObjectClassName - Name of the Page Object class
+ * @param pageUrl - URL path of the page
+ * @param options - Retry and framework options
+ * @returns TestSuite or null if generation fails
+ */
+export async function generateTestScenarios(
+  config: Config,
+  scanResult: ScanResult,
+  pageObjectClassName: string,
+  pageUrl: string,
+  options: AnalyzeOptions = {}
+): Promise<TestSuite | null> {
+  const { retries = 3 } = options;
+  const client = createClient(config);
+  const prompt = buildTestGenPrompt(scanResult, pageObjectClassName, pageUrl);
+
+  return withRetry(
+    async () => {
+      const result = await callAISimple(client, config.ai.model, prompt);
+      const validated = validateTestSuite(result);
+      if (!validated) {
+        log.warn('Invalid test scenario format from AI');
+      }
+      return validated;
+    },
+    {
+      maxRetries: retries,
+      onRetry: (attempt, max) => {
+        log.warn(`Test generation attempt ${attempt}/${max} failed, retrying...`);
+      },
+      onFinalFailure: (error) => {
+        log.error(ERRORS.AI_TEST_GEN_FAILED(retries));
+        log.dim(getErrorMessage(error));
+      },
+    }
+  );
+}
+
+/**
+ * Build AI prompt for test scenario generation
+ */
+function buildTestGenPrompt(scanResult: ScanResult, pageObjectClassName: string, pageUrl: string): string {
+  const elements = scanResult.elements || [];
+  const fillElements = elements.filter(e => e.action === 'fill');
+  const clickElements = elements.filter(e => e.action === 'click' && e.importance === 'high');
+  const selectElements = elements.filter(e => e.action === 'select');
+
+  const elementList = elements.map(e =>
+    `- ${e.name} (${e.component}, action: ${e.action}, importance: ${e.importance}): ${e.description}`
+  ).join('\n');
+
+  const methodList: string[] = ['goto()'];
+  for (const el of fillElements) {
+    methodList.push(`fill${el.name.charAt(0).toUpperCase() + el.name.slice(1)}(value: string)`);
+  }
+  for (const el of selectElements) {
+    methodList.push(`select${el.name.charAt(0).toUpperCase() + el.name.slice(1)}(option: string)`);
+  }
+  for (const el of clickElements) {
+    methodList.push(`click${el.name.charAt(0).toUpperCase() + el.name.slice(1)}()`);
+  }
+
+  return `You are an expert Playwright test writer. Generate test scenarios for the page at "${pageUrl}".
+
+PAGE OBJECT: ${pageObjectClassName}
+PURPOSE: ${scanResult.pageAnalysis.purpose}
+
+AVAILABLE ELEMENTS:
+${elementList || '(no elements)'}
+
+AVAILABLE METHODS on ${pageObjectClassName}:
+${methodList.map(m => `- ${m}`).join('\n')}
+
+RULES:
+- Use ONLY methods listed above (they are the Page Object methods)
+- method field must be a valid JS identifier matching the method name (without parentheses)
+- args array contains the string arguments to pass to the method
+- For fill methods, use realistic test data (e.g., "user@test.com", "ValidPass123!")
+- For assertions, use types: url, visible, hidden, text, count, enabled, disabled
+- Generate 2-5 meaningful test cases covering key user flows
+- Each test must have at least 1 step and 1 assertion
+
+RETURN ONLY VALID JSON:
+{
+  "suiteName": "descriptive suite name",
+  "testCases": [
+    {
+      "name": "should do something specific",
+      "steps": [
+        { "method": "goto", "args": [] },
+        { "method": "fillEmailInput", "args": ["user@test.com"] }
+      ],
+      "assertions": [
+        { "type": "visible", "selector": ".success-message" },
+        { "type": "url", "value": "/dashboard" }
+      ]
+    }
+  ]
+}
+`;
 }
 
 // Helper functions

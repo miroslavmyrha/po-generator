@@ -1,8 +1,9 @@
 // Entry point for programmatic usage
 export { createConfig, validateConfigStructured } from './config.js';
 export { createBrowser, login, crawlUrls, getPageHtml, findAndClickModals } from './lib/crawler.js';
-export { analyzeHtml, analyzeModalContent, clearAIClient } from './lib/ai-client.js';
+export { analyzeHtml, analyzeModalContent, generateTestScenarios, clearAIClient } from './lib/ai-client.js';
 export { generatePageObject, savePageObject, generateIndexFile } from './lib/generator.js';
+export { generateTestFile, saveTestFile } from './lib/test-generator.js';
 export { log } from './lib/logger.js';
 
 // Export framework utilities from centralized registry

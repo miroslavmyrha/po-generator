@@ -2,6 +2,7 @@ import { crawlCommand } from './crawl.js';
 import { scanCommand } from './scan.js';
 import { reviewCommand } from './review.js';
 import { generateCommand } from './generate.js';
+import { testGenCommand } from './test-gen.js';
 import { SUCCESS, PHASES } from '../constants.js';
 import { log } from '../lib/logger.js';
 import type { Config, RunOptions } from '../types.js';
@@ -18,6 +19,7 @@ export async function runCommand(config: Config, options: RunOptions): Promise<v
   await runScanPhase(config, options);
   await runReviewPhase(config, options);
   await runGeneratePhase(config);
+  await runTestGenPhase(config, options);
 
   printWorkflowComplete(startTime);
 }
@@ -42,6 +44,13 @@ async function runReviewPhase(config: Config, options: RunOptions): Promise<void
 async function runGeneratePhase(config: Config): Promise<void> {
   log.info(`\n📍 ${PHASES.GENERATING}\n`);
   await generateCommand(config, {});
+}
+
+async function runTestGenPhase(config: Config, options: RunOptions): Promise<void> {
+  if (options.skipTests) return;
+
+  log.info(`\n📍 ${PHASES.TEST_GEN}\n`);
+  await testGenCommand(config, {});
 }
 
 function printWorkflowComplete(startTime: number): void {

@@ -12,6 +12,7 @@ Crawls your application, analyzes pages with AI (via OpenAI-compatible API), and
 - **Modal detection** - Automatically finds and analyzes modal dialogs
 - **TypeScript output** - Generates typed Page Objects
 - **Interactive review** - Decide which pages become Page Objects
+- **Test generation** - AI generates Playwright test files from Page Objects
 
 ## Installation
 
@@ -91,6 +92,7 @@ This will:
 2. **Scan** - AI analyzes each page for interactive elements
 3. **Review** - Interactively decide which pages need Page Objects
 4. **Generate** - Create TypeScript/JavaScript Page Objects
+5. **Test-gen** - AI generates Playwright test files for each Page Object
 
 ### Individual commands
 
@@ -109,6 +111,9 @@ po-gen review
 
 # Generate Page Objects
 po-gen generate
+
+# Generate Playwright tests from Page Objects
+po-gen test-gen
 ```
 
 ### Command options
@@ -119,6 +124,9 @@ po-gen scan --framework symfony
 
 # Skip interactive review
 po-gen run --skip-review
+
+# Skip test generation in full workflow
+po-gen run --skip-tests
 
 # Generate TypeScript files
 po-gen generate --typescript
@@ -139,10 +147,13 @@ output/
 │   ├── dashboard.json
 │   └── users.json
 ├── decisions.json      # Page Object decisions
-└── pages/              # Generated Page Objects
-    ├── dashboard-page.ts
-    ├── users-page.ts
-    └── index.ts
+├── pages/              # Generated Page Objects
+│   ├── dashboard-page.ts
+│   ├── users-page.ts
+│   └── index.ts
+└── tests/              # Generated Playwright tests
+    ├── dashboard.spec.ts
+    └── users.spec.ts
 ```
 
 ## Generated Page Object Example
@@ -189,6 +200,29 @@ export class DashboardPage {
 }
 ```
 
+## Generated Test Example
+
+```typescript
+import { test, expect } from '@playwright/test';
+import { DashboardPage } from '../pages/dashboard-page';
+
+test.describe('Dashboard Page Tests', () => {
+  test('should search for users', async ({ page }) => {
+    const dashboardPage = new DashboardPage(page);
+    await dashboardPage.goto();
+    await dashboardPage.fillSearchField('John');
+    await expect(page.locator('.v-data-table')).toBeVisible();
+  });
+
+  test('should open add user dialog', async ({ page }) => {
+    const dashboardPage = new DashboardPage(page);
+    await dashboardPage.goto();
+    await dashboardPage.clickAddUserBtn();
+    await expect(page.locator('.v-dialog')).toBeVisible();
+  });
+});
+```
+
 ## Framework Support
 
 ### Vuetify
@@ -218,11 +252,11 @@ Works with any OpenAI-compatible API:
 ## Development
 
 ```bash
-# Type check
-npm run typecheck
+# Run tests
+bun run test
 
-# Build
-npm run build
+# Type check
+bun run typecheck
 ```
 
 ## License
