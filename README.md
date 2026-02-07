@@ -253,10 +253,10 @@ Works with any OpenAI-compatible API:
 
 ```bash
 # Run tests
-bun run test
+npm test
 
 # Type check
-bun run typecheck
+npm run typecheck
 ```
 
 ## License
