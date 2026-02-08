@@ -17,26 +17,28 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: 'npm'
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: TypeScript type check
-        run: npm run typecheck
+        run: bun run typecheck
 
       - name: Run tests
-        run: npm test
+        run: bun run test
 
       - name: Run tests with coverage
         if: matrix.node-version == 22
-        run: npm run test:coverage
+        run: bun run test:coverage
 
   lint:
     name: Lint
@@ -44,16 +46,21 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'npm'
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Check TypeScript
-        run: npm run typecheck
+        run: bun run typecheck
+
+      - name: Lint
+        run: bun run lint
