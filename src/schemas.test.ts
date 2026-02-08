@@ -5,9 +5,6 @@ import {
   validateTestSuite,
   validateTestSuiteWithErrors,
   ElementSchema,
-  ScanResultSchema,
-  TestSuiteSchema,
-  TestCaseSchema,
   TestStepSchema,
   TestAssertionSchema,
 } from './schemas.js';

@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import type { Config } from './types.js';
 import { log } from './lib/logger.js';
-import { FRAMEWORKS, FRAMEWORK_REGISTRY, isValidFramework, getFrameworkConfig } from './frameworks.js';
+import { FRAMEWORKS, isValidFramework, getFrameworkConfig } from './frameworks.js';
 import type { Framework } from './frameworks.js';
 
 /** @deprecated Use FRAMEWORKS from frameworks.ts */

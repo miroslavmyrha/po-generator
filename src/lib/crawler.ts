@@ -89,7 +89,8 @@ async function waitForLoginSuccess(config: Config, page: Page): Promise<void> {
     if (error instanceof Error && error.name === 'TimeoutError') {
       throw new Error(
         `Login timeout: Expected redirect to "${config.auth.successUrl}" within ${TIMEOUTS.LOGIN_WAIT}ms. ` +
-        `Current URL: ${page.url()}. Check credentials or success URL pattern.`
+        `Current URL: ${page.url()}. Check credentials or success URL pattern.`,
+        { cause: error }
       );
     }
     throw error;

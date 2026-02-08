@@ -95,7 +95,7 @@ function generateStep(step: TestStep, varName: string): string {
   return `    await ${varName}.${safeMethod}(${args});`;
 }
 
-function generateAssertion(assertion: TestAssertion, varName: string): string {
+function generateAssertion(assertion: TestAssertion, _varName: string): string {
   const value = assertion.value ? escapeStringForCodeGen(assertion.value) : '';
   const selector = assertion.selector ? escapeStringForCodeGen(assertion.selector) : '';
 

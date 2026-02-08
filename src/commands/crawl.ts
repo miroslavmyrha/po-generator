@@ -4,7 +4,7 @@ import ora from 'ora';
 import { FILES, SUCCESS } from '../constants.js';
 import { log } from '../lib/logger.js';
 import { createBrowser, crawlUrls, handleAuthenticatedLogin } from '../lib/crawler.js';
-import { truncate, getErrorMessage, registerCleanup, getFsErrorCode, getFsErrorMessage, validateOutputPath, writeFileAtomic } from '../lib/utils.js';
+import { truncate, registerCleanup, getFsErrorCode, getFsErrorMessage, validateOutputPath, writeFileAtomic } from '../lib/utils.js';
 import { AppError } from '../types.js';
 import type { Config, CrawlOptions, PageInfo } from '../types.js';
 
@@ -90,7 +90,7 @@ function printSummary(sitemap: PageInfo[]): void {
     table: p.hasTable ? '✓' : '',
   }));
 
-  // console.table is appropriate here - it's a formatted table output, not debug logging
+  // eslint-disable-next-line no-console -- CLI table output
   console.table(table);
 
   log.info('\n💡 Tip: Run "po-gen scan" for AI element analysis.\n');

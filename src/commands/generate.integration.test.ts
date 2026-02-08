@@ -228,7 +228,7 @@ describe('Generate Command Integration', () => {
       const generatedClasses: string[] = [];
 
       // Process only page_object decisions
-      for (const [pagePath, decision] of Object.entries(decisions) as [string, any][]) {
+      for (const [pagePath, decision] of Object.entries(decisions) as [string, { decision: string; suggestedClassName?: string }][]) {
         if (decision.decision !== 'page_object') continue;
 
         const fileName = pagePath.replace(/\//g, '_').replace(/^_/, '') || 'home';
