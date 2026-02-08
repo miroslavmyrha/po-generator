@@ -9,7 +9,6 @@ export const ERRORS = {
   INVALID_URL: (url: string) => `Invalid URL: ${url}`,
   CONFIG_MISSING: (field: string) => `Configuration error: ${field} is required.`,
   NO_PAGES_TO_GENERATE: 'No pages to generate. Edit decisions.json or run "po-gen review".',
-  NO_PAGE_OBJECTS: 'No Page Objects found. Run "po-gen generate" first.',
   TEST_GEN_FAILED: (page: string) => `Test generation failed for "${page}".`,
   AI_TEST_GEN_FAILED: (attempts: number) => `AI test scenario generation failed after ${attempts} attempts.`,
   WORKFLOW_FAILED: (msg: string) => `Workflow failed: ${msg}`,

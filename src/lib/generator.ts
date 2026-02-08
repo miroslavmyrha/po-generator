@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { SELECTORS } from '../constants.js';
-import { capitalize, camelToKebab, escapeSelector, sanitizeJsIdentifier, escapeJsDocComment, writeFileAtomic } from './utils.js';
+import { capitalize, camelToKebab, escapeSelector, escapeStringForCodeGen, sanitizeJsIdentifier, escapeJsDocComment, writeFileAtomic } from './utils.js';
 import type { GeneratedPageObject, GeneratorOptions, ElementInfo } from '../types.js';
 
 /**
@@ -127,12 +127,7 @@ function generateConstructor(pageData: PageData, typescript: boolean): string {
   const pageType = typescript ? 'Page' : 'import("@playwright/test").Page';
 
   // Escape URL to prevent code injection via malicious URL parameters
-  // Must escape: backslashes, single quotes, backticks, and ${} template expressions
-  const escapedUrl = pageData.pageAnalysis.url
-    .replace(/\\/g, '\\\\')      // Escape backslashes first
-    .replace(/'/g, "\\'")         // Escape single quotes (for generated string literal)
-    .replace(/`/g, '\\`')         // Escape backticks (for template literal safety)
-    .replace(/\$\{/g, '\\${');    // Escape template expressions
+  const escapedUrl = escapeStringForCodeGen(pageData.pageAnalysis.url);
 
   let code = `  /**
    * @param {${pageType}} page

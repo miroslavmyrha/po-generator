@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { sanitizeJsIdentifier, camelToKebab, writeFileAtomic } from './utils.js';
+import { sanitizeJsIdentifier, camelToKebab, writeFileAtomic, escapeStringForCodeGen } from './utils.js';
 import type { GeneratedTestFile, TestSuite, TestCase, TestStep, TestAssertion } from '../types.js';
 
 /**
@@ -41,20 +41,22 @@ function buildTestFileCode(
   pageObjectRelativePath: string,
   pageObjectClassName: string
 ): string {
+  // Sanitize className at point of use — defense-in-depth against AI injection
+  const safeClassName = sanitizeJsIdentifier(pageObjectClassName);
   const lines: string[] = [];
 
   // Imports
   lines.push("import { test, expect } from '@playwright/test';");
-  lines.push(`import { ${pageObjectClassName} } from '${escapeStringValue(pageObjectRelativePath)}';`);
+  lines.push(`import { ${safeClassName} } from '${escapeStringForCodeGen(pageObjectRelativePath)}';`);
   lines.push('');
 
   // Test suite
-  const suiteName = escapeStringValue(testSuite.suiteName);
+  const suiteName = escapeStringForCodeGen(testSuite.suiteName);
   lines.push(`test.describe('${suiteName}', () => {`);
 
   for (const testCase of testSuite.testCases) {
     lines.push('');
-    lines.push(generateSingleTest(testCase, pageObjectClassName));
+    lines.push(generateSingleTest(testCase, safeClassName));
   }
 
   lines.push('});');
@@ -65,7 +67,7 @@ function buildTestFileCode(
 
 function generateSingleTest(testCase: TestCase, pageObjectClassName: string): string {
   const lines: string[] = [];
-  const testName = escapeStringValue(testCase.name);
+  const testName = escapeStringForCodeGen(testCase.name);
   const varName = pageObjectClassName.charAt(0).toLowerCase() + pageObjectClassName.slice(1);
   const safeVarName = sanitizeJsIdentifier(varName);
 
@@ -89,17 +91,17 @@ function generateSingleTest(testCase: TestCase, pageObjectClassName: string): st
 
 function generateStep(step: TestStep, varName: string): string {
   const safeMethod = sanitizeJsIdentifier(step.method);
-  const args = step.args.map(a => `'${escapeStringValue(a)}'`).join(', ');
+  const args = step.args.map(a => `'${escapeStringForCodeGen(a)}'`).join(', ');
   return `    await ${varName}.${safeMethod}(${args});`;
 }
 
 function generateAssertion(assertion: TestAssertion, varName: string): string {
-  const value = assertion.value ? escapeStringValue(assertion.value) : '';
-  const selector = assertion.selector ? escapeStringValue(assertion.selector) : '';
+  const value = assertion.value ? escapeStringForCodeGen(assertion.value) : '';
+  const selector = assertion.selector ? escapeStringForCodeGen(assertion.selector) : '';
 
   switch (assertion.type) {
     case 'url':
-      return `    await expect(page).toHaveURL(/${value}/);`;
+      return `    await expect(page).toHaveURL(new RegExp('${value}'));`;
     case 'visible':
       return `    await expect(page.locator('${selector}')).toBeVisible();`;
     case 'hidden':
@@ -119,15 +121,3 @@ function generateAssertion(assertion: TestAssertion, varName: string): string {
   }
 }
 
-/**
- * Escape string for safe embedding in generated code
- * Handles single quotes, backslashes, backticks, and template expressions
- */
-function escapeStringValue(str: string): string {
-  if (!str) return '';
-  return str
-    .replace(/\\/g, '\\\\')
-    .replace(/'/g, "\\'")
-    .replace(/`/g, '\\`')
-    .replace(/\$\{/g, '\\${');
-}

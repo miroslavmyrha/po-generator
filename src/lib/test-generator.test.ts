@@ -86,10 +86,10 @@ describe('generateTestFile', () => {
   });
 
   describe('assertion generation', () => {
-    it('generates URL assertions', () => {
+    it('generates URL assertions with safe RegExp constructor', () => {
       const result = generateTestFile(validTestSuite, '../pages/login-page', 'LoginPage');
 
-      expect(result.code).toContain('await expect(page).toHaveURL(/dashboard/)');
+      expect(result.code).toContain("await expect(page).toHaveURL(new RegExp('dashboard'))");
     });
 
     it('generates visible assertions', () => {
@@ -285,7 +285,91 @@ describe('generateTestFile', () => {
       const result = generateTestFile(suite, '..\\pages\\test-page', 'TestPage');
 
       // Backslashes should be escaped
-      expect(result.code).not.toContain("'..\\pages");
+      expect(result.code).toContain("'..\\\\pages\\\\test-page'");
+    });
+
+    it('escapes newlines in test names to prevent unterminated strings', () => {
+      const suite: TestSuite = {
+        suiteName: "Suite\nwith\nnewlines",
+        testCases: [{
+          name: "test\nwith\nnewline",
+          steps: [{ method: 'goto', args: [] }],
+          assertions: [{ type: 'visible', selector: '.ok' }],
+        }],
+      };
+
+      const result = generateTestFile(suite, '../pages/test-page', 'TestPage');
+
+      // Newlines should be escaped, not literal
+      expect(result.code).not.toContain("'Suite\nwith");
+      expect(result.code).toContain('Suite\\nwith\\nnewlines');
+    });
+
+    it('escapes template expressions in arguments', () => {
+      const suite: TestSuite = {
+        suiteName: 'Test',
+        testCases: [{
+          name: 'template injection',
+          steps: [{ method: 'fillInput', args: ['${process.exit(1)}'] }],
+          assertions: [{ type: 'visible', selector: '.ok' }],
+        }],
+      };
+
+      const result = generateTestFile(suite, '../pages/test-page', 'TestPage');
+
+      expect(result.code).toContain("'\\${process.exit(1)}'");
+      expect(result.code).not.toContain("'${process.exit(1)}'");
+    });
+
+    it('sanitizes className in import statement', () => {
+      const suite: TestSuite = {
+        suiteName: 'Test',
+        testCases: [{
+          name: 'test',
+          steps: [{ method: 'goto', args: [] }],
+          assertions: [{ type: 'visible', selector: '.ok' }],
+        }],
+      };
+
+      // Malicious className that could break import
+      const result = generateTestFile(suite, '../pages/test-page', 'Page"; console.log("xss'); //');
+
+      // Should be sanitized — no injection
+      expect(result.code).not.toContain('console.log');
+      expect(result.code).toContain('import { ');
+    });
+
+    it('handles non-numeric count assertion value', () => {
+      const suite: TestSuite = {
+        suiteName: 'Test',
+        testCases: [{
+          name: 'count test',
+          steps: [{ method: 'goto', args: [] }],
+          assertions: [{ type: 'count', selector: '.item', value: 'abc' }],
+        }],
+      };
+
+      const result = generateTestFile(suite, '../pages/test-page', 'TestPage');
+
+      // Should fall back to 0 for non-numeric value
+      expect(result.code).toContain('toHaveCount(0)');
+    });
+
+    it('prevents URL assertion regex injection', () => {
+      const suite: TestSuite = {
+        suiteName: 'Test',
+        testCases: [{
+          name: 'url test',
+          steps: [{ method: 'goto', args: [] }],
+          assertions: [{ type: 'url', value: "/); process.exit(1); //" }],
+        }],
+      };
+
+      const result = generateTestFile(suite, '../pages/test-page', 'TestPage');
+
+      // Should use new RegExp() with escaped string, not regex literal
+      expect(result.code).toContain("new RegExp('");
+      expect(result.code).not.toContain('//);');
     });
   });
 });

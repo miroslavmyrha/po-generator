@@ -4,6 +4,11 @@ import {
   capitalize,
   camelToKebab,
   escapeSelector,
+  escapeStringForCodeGen,
+  sanitizeJsIdentifier,
+  isValidJsIdentifier,
+  getErrorMessage,
+  validateOutputPath,
   truncate,
   createReadlineInterface,
   createQuestionFn,
@@ -152,5 +157,119 @@ describe('readline utilities', () => {
     expect(typeof question).toBe('function');
 
     rl.close();
+  });
+});
+
+describe('escapeStringForCodeGen', () => {
+  it('escapes single quotes', () => {
+    expect(escapeStringForCodeGen("it's")).toBe("it\\'s");
+  });
+
+  it('escapes backslashes', () => {
+    expect(escapeStringForCodeGen('path\\to')).toBe('path\\\\to');
+  });
+
+  it('escapes backticks', () => {
+    expect(escapeStringForCodeGen('`template`')).toBe('\\`template\\`');
+  });
+
+  it('escapes template expressions', () => {
+    expect(escapeStringForCodeGen('${inject}')).toBe('\\${inject}');
+  });
+
+  it('escapes newlines', () => {
+    expect(escapeStringForCodeGen('line1\nline2')).toBe('line1\\nline2');
+  });
+
+  it('escapes carriage returns', () => {
+    expect(escapeStringForCodeGen('line1\rline2')).toBe('line1\\rline2');
+  });
+
+  it('returns empty string for empty input', () => {
+    expect(escapeStringForCodeGen('')).toBe('');
+  });
+
+  it('handles combined escape scenarios', () => {
+    const input = "val'ue\nwith\\all`${chars}";
+    const result = escapeStringForCodeGen(input);
+    expect(result).toBe("val\\'ue\\nwith\\\\all\\`\\${chars}");
+  });
+});
+
+describe('sanitizeJsIdentifier', () => {
+  it('returns valid identifier unchanged', () => {
+    expect(sanitizeJsIdentifier('validName')).toBe('validName');
+  });
+
+  it('strips non-alphanumeric characters', () => {
+    expect(sanitizeJsIdentifier('alert("xss")')).toBe('alertxss');
+  });
+
+  it('prefixes identifiers starting with a number', () => {
+    expect(sanitizeJsIdentifier('123abc')).toBe('_123abc');
+  });
+
+  it('returns "element" for empty string', () => {
+    expect(sanitizeJsIdentifier('')).toBe('element');
+  });
+
+  it('returns "element" for all-invalid characters', () => {
+    expect(sanitizeJsIdentifier('!@#%^&*()')).toBe('element');
+  });
+
+  it('preserves $ and _ characters', () => {
+    expect(sanitizeJsIdentifier('$elem_1')).toBe('$elem_1');
+  });
+});
+
+describe('isValidJsIdentifier', () => {
+  it('accepts valid identifiers', () => {
+    expect(isValidJsIdentifier('myVar')).toBe(true);
+    expect(isValidJsIdentifier('_private')).toBe(true);
+    expect(isValidJsIdentifier('$element')).toBe(true);
+  });
+
+  it('rejects invalid identifiers', () => {
+    expect(isValidJsIdentifier('123abc')).toBe(false);
+    expect(isValidJsIdentifier('has space')).toBe(false);
+    expect(isValidJsIdentifier('has-dash')).toBe(false);
+    expect(isValidJsIdentifier('')).toBe(false);
+  });
+});
+
+describe('getErrorMessage', () => {
+  it('extracts message from Error instance', () => {
+    expect(getErrorMessage(new Error('test'))).toBe('test');
+  });
+
+  it('returns string errors as-is', () => {
+    expect(getErrorMessage('string error')).toBe('string error');
+  });
+
+  it('returns fallback for unknown types', () => {
+    expect(getErrorMessage(42)).toBe('Unknown error');
+    expect(getErrorMessage(null)).toBe('Unknown error');
+  });
+});
+
+describe('validateOutputPath', () => {
+  it('accepts paths within base directory', () => {
+    const result = validateOutputPath('output/pages', '/tmp/test-project');
+    expect(result).toBe('/tmp/test-project/output/pages');
+  });
+
+  it('rejects path traversal with ../', () => {
+    expect(() => validateOutputPath('../../etc/passwd', '/tmp/test-project'))
+      .toThrow('Path traversal detected');
+  });
+
+  it('rejects absolute paths outside base', () => {
+    expect(() => validateOutputPath('/etc/passwd', '/tmp/test-project'))
+      .toThrow('Path traversal detected');
+  });
+
+  it('accepts base directory itself', () => {
+    const result = validateOutputPath('.', '/tmp/test-project');
+    expect(result).toBe('/tmp/test-project');
   });
 });

@@ -6,7 +6,7 @@ import { generateTestScenarios } from '../lib/ai-client.js';
 import { generateTestFile, saveTestFile } from '../lib/test-generator.js';
 import { loadDecisions, getPageObjectPaths, loadScanResult } from '../lib/data-loader.js';
 import { validateOutputPath, getErrorMessage, camelToKebab } from '../lib/utils.js';
-import type { Config, TestGenOptions, Decisions, ScanResult } from '../types.js';
+import type { Config, TestGenOptions, Decisions } from '../types.js';
 
 interface GeneratedTest {
   suiteName: string;
@@ -33,13 +33,13 @@ export async function testGenCommand(config: Config, options: TestGenOptions): P
     ? validateOutputPath(options.output)
     : path.join(config.output.dir, FILES.TESTS_DIR);
   const pagesDir = path.join(config.output.dir, FILES.PAGES_DIR);
-  const retries = parseInt(options.retry || '3', 10) || 3;
+  const retries = Math.max(1, Math.min(10, parseInt(options.retry || '3', 10) || 3));
 
   const decisions = loadDecisions(config);
   const pagesToGenerate = getPageObjectPaths(decisions);
 
   if (pagesToGenerate.length === 0) {
-    log.warn(ERRORS.NO_PAGE_OBJECTS);
+    log.warn(ERRORS.NO_PAGES_TO_GENERATE);
     return;
   }
 

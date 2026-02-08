@@ -61,16 +61,27 @@ export function camelToKebab(str: string): string {
 }
 
 /**
+ * Escape string for safe embedding in generated single-quoted code strings
+ * Handles backslashes, quotes, backticks, template expressions, and newlines
+ * Used by both Page Object generator and test generator
+ */
+export function escapeStringForCodeGen(str: string): string {
+  if (!str) return '';
+  return str
+    .replace(/\\/g, '\\\\')      // Escape backslashes first
+    .replace(/'/g, "\\'")         // Escape single quotes
+    .replace(/`/g, '\\`')         // Escape backticks
+    .replace(/\$\{/g, '\\${')    // Escape template expressions
+    .replace(/\n/g, '\\n')        // Escape newlines
+    .replace(/\r/g, '\\r');       // Escape carriage returns
+}
+
+/**
  * Escape special characters in selector strings for safe embedding in code
- * Handles single quotes, backslashes, and backticks
- * Example: "[data-id='test']" → "[data-id=\'test\']"
+ * @deprecated Use escapeStringForCodeGen instead
  */
 export function escapeSelector(selector: string): string {
-  if (!selector) return '';
-  return selector
-    .replace(/\\/g, '\\\\')  // Escape backslashes first
-    .replace(/'/g, "\\'")     // Escape single quotes
-    .replace(/`/g, '\\`');    // Escape backticks for template safety
+  return escapeStringForCodeGen(selector);
 }
 
 /**
@@ -218,7 +229,7 @@ export function validateOutputPath(userPath: string, basePath: string = process.
         const parentPath = path.dirname(currentPath);
         if (fs.existsSync(parentPath)) {
           const realParent = fs.realpathSync(parentPath);
-          if (!realParent.startsWith(realBase) && realParent !== realBase) {
+          if (!realParent.startsWith(realBase + path.sep) && realParent !== realBase) {
             throw new AppError(`Symlink traversal detected in parent: ${userPath}`, 'PATH_TRAVERSAL');
           }
           break; // Found existing parent, it's safe
@@ -276,7 +287,19 @@ export async function withRetry<T>(
       if (result !== null) {
         return result;
       }
-      // Result was null but no error - operation returned invalid data
+      // Result was null but no error — treat as a soft failure with delay
+      if (onRetry) {
+        onRetry(attempt, maxRetries, new Error('Operation returned null'));
+      }
+      if (attempt === maxRetries) {
+        if (onFinalFailure) {
+          onFinalFailure(new Error('Operation returned null'));
+        }
+        return null;
+      }
+      const nullDelay = exponentialBackoff ? baseDelay * attempt : baseDelay;
+      await sleep(nullDelay);
+      continue;
     } catch (error) {
       if (onRetry) {
         onRetry(attempt, maxRetries, error);

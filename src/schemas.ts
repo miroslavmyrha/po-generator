@@ -118,19 +118,18 @@ export interface ValidationResult<T> {
 }
 
 /**
- * Validate scan result data against schema
- * Returns data and any validation errors for caller to handle logging
+ * Generic schema validator — returns data or null
  */
-export function validateScanResult(data: unknown): ScanResult | null {
-  const result = ScanResultSchema.safeParse(data);
+function validate<T>(schema: z.ZodSchema<T>, data: unknown): T | null {
+  const result = schema.safeParse(data);
   return result.success ? result.data : null;
 }
 
 /**
- * Validate scan result with detailed error information
+ * Generic schema validator — returns data with error details
  */
-export function validateScanResultWithErrors(data: unknown): ValidationResult<ScanResult> {
-  const result = ScanResultSchema.safeParse(data);
+function validateWithErrors<T>(schema: z.ZodSchema<T>, data: unknown): ValidationResult<T> {
+  const result = schema.safeParse(data);
   if (result.success) {
     return { data: result.data };
   }
@@ -140,47 +139,10 @@ export function validateScanResultWithErrors(data: unknown): ValidationResult<Sc
   };
 }
 
-/**
- * Validate modal analysis data against schema
- * Returns data and any validation errors for caller to handle logging
- */
-export function validateModalAnalysis(data: unknown): ModalAnalysis | null {
-  const result = ModalAnalysisSchema.safeParse(data);
-  return result.success ? result.data : null;
-}
-
-/**
- * Validate modal analysis with detailed error information
- */
-export function validateModalAnalysisWithErrors(data: unknown): ValidationResult<ModalAnalysis> {
-  const result = ModalAnalysisSchema.safeParse(data);
-  if (result.success) {
-    return { data: result.data };
-  }
-  return {
-    data: null,
-    errors: result.error.issues.map(e => `${String(e.path.join('.'))}: ${e.message}`),
-  };
-}
-
-/**
- * Validate test suite data against schema
- */
-export function validateTestSuite(data: unknown): TestSuite | null {
-  const result = TestSuiteSchema.safeParse(data);
-  return result.success ? result.data : null;
-}
-
-/**
- * Validate test suite with detailed error information
- */
-export function validateTestSuiteWithErrors(data: unknown): ValidationResult<TestSuite> {
-  const result = TestSuiteSchema.safeParse(data);
-  if (result.success) {
-    return { data: result.data };
-  }
-  return {
-    data: null,
-    errors: result.error.issues.map(e => `${String(e.path.join('.'))}: ${e.message}`),
-  };
-}
+// Named validation functions for each schema
+export const validateScanResult = (data: unknown): ScanResult | null => validate(ScanResultSchema, data);
+export const validateScanResultWithErrors = (data: unknown): ValidationResult<ScanResult> => validateWithErrors(ScanResultSchema, data);
+export const validateModalAnalysis = (data: unknown): ModalAnalysis | null => validate(ModalAnalysisSchema, data);
+export const validateModalAnalysisWithErrors = (data: unknown): ValidationResult<ModalAnalysis> => validateWithErrors(ModalAnalysisSchema, data);
+export const validateTestSuite = (data: unknown): TestSuite | null => validate(TestSuiteSchema, data);
+export const validateTestSuiteWithErrors = (data: unknown): ValidationResult<TestSuite> => validateWithErrors(TestSuiteSchema, data);
