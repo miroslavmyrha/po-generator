@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { SELECTORS } from '../constants.js';
-import { capitalize, camelToKebab, escapeSelector, escapeStringForCodeGen, sanitizeJsIdentifier, escapeJsDocComment, writeFileAtomic } from './utils.js';
+import { capitalize, camelToKebab, escapeStringForCodeGen, sanitizeJsIdentifier, escapeJsDocComment, writeFileAtomic } from './utils.js';
 import type { GeneratedPageObject, GeneratorOptions, ElementInfo } from '../types.js';
 
 /**
@@ -159,7 +159,7 @@ function generateElementDeclarations(elements: ElementInfo[]): string {
   for (const el of elements) {
     const safeName = safeElementName(el.name);
     lines.push(`    /** ${escapeJsDocComment(el.description)} */`);
-    lines.push(`    this.${safeName} = page.locator('${escapeSelector(el.selector)}');`);
+    lines.push(`    this.${safeName} = page.locator('${escapeStringForCodeGen(el.selector)}');`);
     lines.push('');
   }
   return lines.join('\n');
@@ -185,7 +185,7 @@ function generateModalDeclarations(modals: ModalData[]): string {
 
       for (const el of modal.elements) {
         const safeName = safeElementName(el.name);
-        const selector = escapeSelector(el.selector);
+        const selector = escapeStringForCodeGen(el.selector);
         lines.push(`      /** ${escapeJsDocComment(el.description)} */`);
         // Use pre-computed MODAL_CONTENT_PARTS for performance
         const fullSelector = MODAL_CONTENT_PARTS.map(m => `${m} ${selector}`).join(', ');
@@ -194,10 +194,10 @@ function generateModalDeclarations(modals: ModalData[]): string {
 
       if (modal.actions) {
         if (modal.actions.confirm) {
-          lines.push(`      confirm: page.locator('${escapeSelector(modal.actions.confirm)}'),`);
+          lines.push(`      confirm: page.locator('${escapeStringForCodeGen(modal.actions.confirm)}'),`);
         }
         if (modal.actions.cancel) {
-          lines.push(`      cancel: page.locator('${escapeSelector(modal.actions.cancel)}'),`);
+          lines.push(`      cancel: page.locator('${escapeStringForCodeGen(modal.actions.cancel)}'),`);
         }
       }
 
@@ -354,8 +354,10 @@ export function generateIndexFile(classNames: string[], outputDir: string, ext =
   let code = '// Auto-generated index file\n\n';
 
   for (const className of classNames) {
-    const fileName = camelToKebab(className);
-    code += `export { ${className} } from './${fileName}.${ext}';\n`;
+    // Sanitize at point of use — defense-in-depth for public API
+    const safeName = sanitizeJsIdentifier(className);
+    const fileName = camelToKebab(safeName);
+    code += `export { ${safeName} } from './${fileName}.${ext}';\n`;
   }
 
   const filePath = path.join(outputDir, `index.${ext}`);

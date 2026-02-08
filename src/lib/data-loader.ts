@@ -3,7 +3,7 @@ import path from 'path';
 import { z } from 'zod';
 import { FILES, ERRORS } from '../constants.js';
 import { log } from './logger.js';
-import { pathToFileName, writeFileAtomic, getFsErrorCode } from './utils.js';
+import { pathToFileName, writeFileAtomic, getFsErrorCode, safeJsonParse } from './utils.js';
 import { AppError } from '../types.js';
 import type { Config, PageInfo, Decisions, FullScanResult } from '../types.js';
 
@@ -28,12 +28,7 @@ export function loadJsonFile<T>(
   // No TOCTOU: try to read directly, handle ENOENT in catch
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
-    const parsed = JSON.parse(content);
-
-    // Prevent prototype pollution by nullifying prototype on objects
-    if (parsed && typeof parsed === 'object') {
-      Object.setPrototypeOf(parsed, null);
-    }
+    const parsed = safeJsonParse(content);
 
     // Validate with Zod schema if provided
     if (schema) {
@@ -101,12 +96,7 @@ export function loadScanResult(config: Config, pagePath: string): FullScanResult
   // No TOCTOU: try to read directly, return null on ENOENT
   try {
     const content = fs.readFileSync(scanFile, 'utf-8');
-    const parsed = JSON.parse(content);
-    // Prevent prototype pollution
-    if (parsed && typeof parsed === 'object') {
-      Object.setPrototypeOf(parsed, null);
-    }
-    return parsed as FullScanResult;
+    return safeJsonParse(content) as FullScanResult;
   } catch (error) {
     // ENOENT is expected for missing files - don't log
     if (getFsErrorCode(error) !== 'ENOENT') {

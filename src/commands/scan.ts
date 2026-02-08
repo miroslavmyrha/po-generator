@@ -1,11 +1,11 @@
 import fs from 'fs';
 import path from 'path';
 import ora, { Ora } from 'ora';
-import { ERRORS, SUCCESS, FILES, TIMEOUTS } from '../constants.js';
+import { ERRORS, SUCCESS, FILES, TIMEOUTS, AI_CONFIG } from '../constants.js';
 import { log } from '../lib/logger.js';
 import { createBrowser, getPageHtml, findAndClickModals, handleAuthenticatedLogin } from '../lib/crawler.js';
 import { analyzeHtml, analyzeModalContent } from '../lib/ai-client.js';
-import { pathToFileName, getErrorMessage, registerCleanup, mapWithConcurrency, validateOutputPath, writeFileAtomic } from '../lib/utils.js';
+import { pathToFileName, getErrorMessage, registerCleanup, mapWithConcurrency, validateOutputPath, writeFileAtomic, parseRetryCount } from '../lib/utils.js';
 import { loadSitemap as loadSitemapFile, countDecisions } from '../lib/data-loader.js';
 import { AppError } from '../types.js';
 import type { Config, ScanOptions, PageInfo, Decisions, FullScanResult, ScanResult, ModalAnalysis } from '../types.js';
@@ -149,7 +149,7 @@ async function scanSinglePage(
 
     // Validate and parse retry count with bounds checking
     const retryStr = options.retry || '3';
-    const retries = Math.max(1, Math.min(10, parseInt(retryStr, 10) || 3));
+    const retries = parseRetryCount(retryStr);
 
     const analysis = await analyzeHtml(config, html, pageInfo.path, {
       retries,
@@ -205,7 +205,7 @@ async function scanModals(
       const modalAnalysis = await analyzeModalContent(config, modal.html, modal.trigger, { framework });
       return { modal, modalAnalysis };
     },
-    3 // Max 3 concurrent AI requests
+    AI_CONFIG.MODAL_CONCURRENCY
   );
 
   for (const { modal, modalAnalysis } of modalAnalyses) {

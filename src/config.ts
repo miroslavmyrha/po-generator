@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import type { Config } from './types.js';
 import { log } from './lib/logger.js';
-import { FRAMEWORKS, FRAMEWORK_DEFAULTS, isValidFramework, getFrameworkConfig } from './frameworks.js';
+import { FRAMEWORKS, FRAMEWORK_REGISTRY, isValidFramework, getFrameworkConfig } from './frameworks.js';
 import type { Framework } from './frameworks.js';
 
 /** @deprecated Use FRAMEWORKS from frameworks.ts */
@@ -58,8 +58,8 @@ function checkEnvPermissions(): void {
   }
 }
 
-// Re-export FRAMEWORK_DEFAULTS from frameworks.ts for backwards compatibility
-export { FRAMEWORK_DEFAULTS } from './frameworks.js';
+// Re-export FRAMEWORK_REGISTRY for convenience
+export { FRAMEWORK_REGISTRY } from './frameworks.js';
 
 /**
  * Create configuration from environment variables with optional overrides

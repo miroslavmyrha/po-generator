@@ -1,9 +1,9 @@
 import OpenAI from 'openai';
-import { ERRORS, LIMITS } from '../constants.js';
-import { FRAMEWORK_PROMPTS, FRAMEWORK_MODAL_SELECTORS } from '../frameworks.js';
+import { ERRORS, LIMITS, TIMEOUTS, AI_CONFIG } from '../constants.js';
+import { FRAMEWORK_REGISTRY } from '../frameworks.js';
 import type { Framework } from '../frameworks.js';
 import { log } from './logger.js';
-import { getErrorMessage, withRetry, registerCleanup } from './utils.js';
+import { getErrorMessage, withRetry, registerCleanup, capitalize, safeJsonParse } from './utils.js';
 import { validateScanResult, validateModalAnalysis, validateTestSuite } from '../schemas.js';
 import { AppError } from '../types.js';
 import type { Config, ScanResult, ModalAnalysis, TestSuite, AnalyzeOptions } from '../types.js';
@@ -38,15 +38,13 @@ function createClient(config: Config): OpenAI {
   cachedClient = new OpenAI({
     baseURL: config.ai.baseUrl,
     apiKey: config.ai.apiKey,
-    timeout: 60000, // 60 second timeout to prevent hanging
+    timeout: TIMEOUTS.AI_REQUEST,
     maxRetries: 0, // We handle retries ourselves with withRetry
   });
   cachedClientBaseUrl = config.ai.baseUrl;
 
   return cachedClient;
 }
-
-// Framework prompts are now imported from frameworks.ts
 
 const BASE_PROMPT = `
 You are an expert in web testing with Playwright. You analyze HTML pages and return structured data for generating Page Objects.
@@ -107,9 +105,9 @@ RETURN ONLY VALID JSON (no markdown, no extra text):
  * Computed once at module load to avoid string concatenation on every call
  */
 const FULL_PROMPTS: Record<Framework, string> = {
-  vuetify: BASE_PROMPT + FRAMEWORK_PROMPTS.vuetify + OUTPUT_FORMAT,
-  symfony: BASE_PROMPT + FRAMEWORK_PROMPTS.symfony + OUTPUT_FORMAT,
-  generic: BASE_PROMPT + FRAMEWORK_PROMPTS.generic + OUTPUT_FORMAT,
+  vuetify: BASE_PROMPT + FRAMEWORK_REGISTRY.vuetify.aiPrompt + OUTPUT_FORMAT,
+  symfony: BASE_PROMPT + FRAMEWORK_REGISTRY.symfony.aiPrompt + OUTPUT_FORMAT,
+  generic: BASE_PROMPT + FRAMEWORK_REGISTRY.generic.aiPrompt + OUTPUT_FORMAT,
 };
 
 /**
@@ -172,8 +170,7 @@ export async function analyzeModalContent(
   const cleanHtml = cleanHtmlContent(html.substring(0, LIMITS.MODAL_HTML_MAX_LENGTH));
   const client = createClient(config);
 
-  // framework is already Framework type (from options or default 'generic')
-  const prompt = buildModalPrompt(triggerName, framework, FRAMEWORK_MODAL_SELECTORS);
+  const prompt = buildModalPrompt(triggerName, framework);
 
   return withRetry(
     async () => {
@@ -246,13 +243,13 @@ function buildTestGenPrompt(scanResult: ScanResult, pageObjectClassName: string,
 
   const methodList: string[] = ['goto()'];
   for (const el of fillElements) {
-    methodList.push(`fill${el.name.charAt(0).toUpperCase() + el.name.slice(1)}(value: string)`);
+    methodList.push(`fill${capitalize(el.name)}(value: string)`);
   }
   for (const el of selectElements) {
-    methodList.push(`select${el.name.charAt(0).toUpperCase() + el.name.slice(1)}(option: string)`);
+    methodList.push(`select${capitalize(el.name)}(option: string)`);
   }
   for (const el of clickElements) {
-    methodList.push(`click${el.name.charAt(0).toUpperCase() + el.name.slice(1)}()`);
+    methodList.push(`click${capitalize(el.name)}()`);
   }
 
   return `You are an expert Playwright test writer. Generate test scenarios for the page at "${pageUrl}".
@@ -349,7 +346,7 @@ async function callAI(
 ): Promise<unknown> {
   const response = await client.chat.completions.create({
     model,
-    temperature: 0.1,
+    temperature: AI_CONFIG.TEMPERATURE,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: `URL: ${url}\n\nHTML:\n${html}` },
@@ -362,7 +359,7 @@ async function callAI(
 async function callAISimple(client: OpenAI, model: string, prompt: string): Promise<unknown> {
   const response = await client.chat.completions.create({
     model,
-    temperature: 0.1,
+    temperature: AI_CONFIG.TEMPERATURE,
     messages: [{ role: 'user', content: prompt }],
   });
 
@@ -413,14 +410,7 @@ export function parseJsonResponse(content: string | null): unknown {
         depth--;
         if (depth === 0) {
           const jsonStr = content.substring(startIndex, i + 1);
-          const parsed = JSON.parse(jsonStr);
-
-          // Prevent prototype pollution by nullifying prototype
-          if (parsed && typeof parsed === 'object') {
-            Object.setPrototypeOf(parsed, null);
-          }
-
-          return parsed;
+          return safeJsonParse(jsonStr);
         }
       }
     }
@@ -438,15 +428,15 @@ export function parseJsonResponse(content: string | null): unknown {
  */
 function buildModalPrompt(
   triggerName: string,
-  framework: Framework,
-  selectors: Record<Framework, string>
+  framework: Framework
 ): string {
+  const modalSelectors = FRAMEWORK_REGISTRY[framework]?.modalSelectors ?? FRAMEWORK_REGISTRY.generic.modalSelectors;
   return `
 Analyze modal/dialog content.
 Modal was opened by clicking: "${triggerName}"
 
 Framework: ${framework}
-Modal container: ${selectors[framework] || selectors.generic}
+Modal container: ${modalSelectors}
 
 RETURN ONLY VALID JSON:
 {

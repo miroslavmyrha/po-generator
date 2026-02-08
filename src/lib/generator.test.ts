@@ -1,6 +1,23 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { generatePageObject, generateIndexFile, PageData } from './generator.js';
 import type { ElementInfo } from '../types.js';
+
+let lastWrittenContent = '';
+vi.mock('./utils.js', async () => {
+  const actual = await vi.importActual('./utils.js');
+  return {
+    ...actual,
+    writeFileAtomic: vi.fn((_path: string, content: string) => { lastWrittenContent = content; }),
+  };
+});
+
+vi.mock('fs', async () => {
+  const actual = await vi.importActual<typeof import('fs')>('fs');
+  return {
+    ...actual,
+    default: { ...actual, mkdirSync: vi.fn() },
+  };
+});
 
 /**
  * Tests for Page Object code generation
@@ -398,8 +415,21 @@ describe('generatePageObject', () => {
 describe('generateIndexFile', () => {
   it('generates exports for all class names', () => {
     const classNames = ['DashboardPage', 'LoginPage', 'SettingsPage'];
-    // Note: generateIndexFile writes to disk, so we'd need to mock fs
-    // For now, just verify the function exists and accepts parameters
-    expect(typeof generateIndexFile).toBe('function');
+
+    generateIndexFile(classNames, '/tmp/test-output');
+
+    expect(lastWrittenContent).toContain("export { DashboardPage } from './dashboard-page.js'");
+    expect(lastWrittenContent).toContain("export { LoginPage } from './login-page.js'");
+    expect(lastWrittenContent).toContain("export { SettingsPage } from './settings-page.js'");
+  });
+
+  it('sanitizes class names to prevent injection', () => {
+    const classNames = ['Page"; console.log("xss'];
+
+    generateIndexFile(classNames, '/tmp/test-output');
+
+    // Malicious class name should be sanitized
+    expect(lastWrittenContent).not.toContain('console.log');
+    expect(lastWrittenContent).toContain('export { ');
   });
 });

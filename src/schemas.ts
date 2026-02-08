@@ -11,6 +11,17 @@ const MAX_LENGTHS = {
   URL: 2000,          // URLs
 } as const;
 
+// Max array sizes to prevent DoS from huge AI responses
+const MAX_ARRAY_SIZES = {
+  ELEMENTS: 200,      // Max elements per page
+  MODALS: 50,         // Max modals per page
+  NAVIGATION: 200,    // Max navigation items
+  TEST_CASES: 50,     // Max test cases per suite
+  TEST_STEPS: 50,     // Max steps per test case
+  TEST_ASSERTIONS: 20, // Max assertions per test case
+  ARGS: 10,           // Max args per step
+} as const;
+
 // Element schema with validated name and length limits
 export const ElementSchema = z.object({
   name: z.string()
@@ -50,9 +61,9 @@ export const NavigationSchema = z.object({
 // Full scan result schema
 export const ScanResultSchema = z.object({
   pageAnalysis: PageAnalysisSchema,
-  elements: z.array(ElementSchema).default([]),
-  modals: z.array(ModalInfoSchema).default([]),
-  navigation: z.array(NavigationSchema).default([]),
+  elements: z.array(ElementSchema).max(MAX_ARRAY_SIZES.ELEMENTS).default([]),
+  modals: z.array(ModalInfoSchema).max(MAX_ARRAY_SIZES.MODALS).default([]),
+  navigation: z.array(NavigationSchema).max(MAX_ARRAY_SIZES.NAVIGATION).default([]),
 });
 
 // Modal analysis schema with length limits
@@ -61,7 +72,7 @@ export const ModalAnalysisSchema = z.object({
     .max(MAX_LENGTHS.IDENTIFIER, 'Modal name too long')
     .regex(jsIdentifierPattern, 'Modal name must be valid JS identifier'),
   purpose: z.string().max(MAX_LENGTHS.DESCRIPTION, 'Purpose too long'),
-  elements: z.array(ElementSchema).default([]),
+  elements: z.array(ElementSchema).max(MAX_ARRAY_SIZES.ELEMENTS).default([]),
   actions: z.object({
     confirm: z.string().max(MAX_LENGTHS.SELECTOR, 'Confirm selector too long').optional(),
     cancel: z.string().max(MAX_LENGTHS.SELECTOR, 'Cancel selector too long').optional(),
@@ -73,7 +84,7 @@ export const TestStepSchema = z.object({
   method: z.string()
     .max(MAX_LENGTHS.IDENTIFIER, 'Method name too long')
     .regex(jsIdentifierPattern, 'Method name must be valid JS identifier'),
-  args: z.array(z.string().max(MAX_LENGTHS.SELECTOR, 'Argument too long')).default([]),
+  args: z.array(z.string().max(MAX_LENGTHS.SELECTOR, 'Argument too long')).max(MAX_ARRAY_SIZES.ARGS).default([]),
   description: z.string().max(MAX_LENGTHS.DESCRIPTION, 'Step description too long').optional(),
 });
 
@@ -87,14 +98,14 @@ export const TestAssertionSchema = z.object({
 // Test case schema - single test scenario
 export const TestCaseSchema = z.object({
   name: z.string().max(MAX_LENGTHS.DESCRIPTION, 'Test name too long'),
-  steps: z.array(TestStepSchema).min(1, 'Test must have at least one step'),
-  assertions: z.array(TestAssertionSchema).min(1, 'Test must have at least one assertion'),
+  steps: z.array(TestStepSchema).min(1, 'Test must have at least one step').max(MAX_ARRAY_SIZES.TEST_STEPS),
+  assertions: z.array(TestAssertionSchema).min(1, 'Test must have at least one assertion').max(MAX_ARRAY_SIZES.TEST_ASSERTIONS),
 });
 
 // Test suite schema - collection of test cases for a page
 export const TestSuiteSchema = z.object({
   suiteName: z.string().max(MAX_LENGTHS.DESCRIPTION, 'Suite name too long'),
-  testCases: z.array(TestCaseSchema).min(1, 'Suite must have at least one test case'),
+  testCases: z.array(TestCaseSchema).min(1, 'Suite must have at least one test case').max(MAX_ARRAY_SIZES.TEST_CASES),
 });
 
 // Type exports from schemas

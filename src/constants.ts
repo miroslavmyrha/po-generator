@@ -69,6 +69,13 @@ export const TIMEOUTS = {
   LOGIN_WAIT: 10000,
   NETWORK_IDLE: 30000,
   MODAL_CLOSE: 300,
+  AI_REQUEST: 60000,
+} as const;
+
+// AI configuration
+export const AI_CONFIG = {
+  TEMPERATURE: 0.1,
+  MODAL_CONCURRENCY: 3,
 } as const;
 
 // Content limits
@@ -92,6 +99,5 @@ export const SELECTORS = {
 } as const;
 
 // Re-export framework types and constants from centralized registry
-// All framework configuration is now in frameworks.ts
-export { FRAMEWORKS, FRAMEWORK_MODAL_SELECTORS } from './frameworks.js';
+export { FRAMEWORKS, FRAMEWORK_REGISTRY } from './frameworks.js';
 export type { Framework } from './frameworks.js';

@@ -120,27 +120,27 @@ describe('validateConfig', () => {
   });
 });
 
-describe('FRAMEWORK_DEFAULTS', () => {
-  it('has defaults for vuetify framework', async () => {
-    const { FRAMEWORK_DEFAULTS } = await import('./config.js');
+describe('FRAMEWORK_REGISTRY', () => {
+  it('has config for vuetify framework', async () => {
+    const { FRAMEWORK_REGISTRY } = await import('./config.js');
 
-    expect(FRAMEWORK_DEFAULTS.vuetify).toBeDefined();
-    expect(FRAMEWORK_DEFAULTS.vuetify.waitForSelector).toBe('.v-application');
-    expect(FRAMEWORK_DEFAULTS.vuetify.loginFields.username).toContain('Email');
+    expect(FRAMEWORK_REGISTRY.vuetify).toBeDefined();
+    expect(FRAMEWORK_REGISTRY.vuetify.waitForSelector).toBe('.v-application');
+    expect(FRAMEWORK_REGISTRY.vuetify.loginFields.username).toContain('Email');
   });
 
-  it('has defaults for symfony framework', async () => {
-    const { FRAMEWORK_DEFAULTS } = await import('./config.js');
+  it('has config for symfony framework', async () => {
+    const { FRAMEWORK_REGISTRY } = await import('./config.js');
 
-    expect(FRAMEWORK_DEFAULTS.symfony).toBeDefined();
-    expect(FRAMEWORK_DEFAULTS.symfony.loginFields.username).toContain('#username');
+    expect(FRAMEWORK_REGISTRY.symfony).toBeDefined();
+    expect(FRAMEWORK_REGISTRY.symfony.loginFields.username).toContain('#username');
   });
 
-  it('has defaults for generic framework', async () => {
-    const { FRAMEWORK_DEFAULTS } = await import('./config.js');
+  it('has config for generic framework', async () => {
+    const { FRAMEWORK_REGISTRY } = await import('./config.js');
 
-    expect(FRAMEWORK_DEFAULTS.generic).toBeDefined();
-    expect(FRAMEWORK_DEFAULTS.generic.waitForSelector).toBe('body');
+    expect(FRAMEWORK_REGISTRY.generic).toBeDefined();
+    expect(FRAMEWORK_REGISTRY.generic.waitForSelector).toBe('body');
   });
 });
 

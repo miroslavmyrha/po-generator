@@ -149,35 +149,3 @@ export function isValidFramework(framework: string): framework is Framework {
   return FRAMEWORKS.includes(framework as Framework);
 }
 
-// Legacy exports for backwards compatibility
-// These map to the new centralized registry
-
-/** @deprecated Use FRAMEWORK_REGISTRY[framework].loginFields and waitForSelector */
-export const FRAMEWORK_DEFAULTS: Record<string, { waitForSelector: string; loginFields: FrameworkConfig['loginFields'] }> = {
-  vuetify: {
-    waitForSelector: FRAMEWORK_REGISTRY.vuetify.waitForSelector,
-    loginFields: FRAMEWORK_REGISTRY.vuetify.loginFields,
-  },
-  symfony: {
-    waitForSelector: FRAMEWORK_REGISTRY.symfony.waitForSelector,
-    loginFields: FRAMEWORK_REGISTRY.symfony.loginFields,
-  },
-  generic: {
-    waitForSelector: FRAMEWORK_REGISTRY.generic.waitForSelector,
-    loginFields: FRAMEWORK_REGISTRY.generic.loginFields,
-  },
-};
-
-/** @deprecated Use FRAMEWORK_REGISTRY[framework].modalSelectors */
-export const FRAMEWORK_MODAL_SELECTORS: Record<Framework, string> = {
-  vuetify: FRAMEWORK_REGISTRY.vuetify.modalSelectors,
-  symfony: FRAMEWORK_REGISTRY.symfony.modalSelectors,
-  generic: FRAMEWORK_REGISTRY.generic.modalSelectors,
-};
-
-/** @deprecated Use FRAMEWORK_REGISTRY[framework].aiPrompt */
-export const FRAMEWORK_PROMPTS: Record<Framework, string> = {
-  vuetify: FRAMEWORK_REGISTRY.vuetify.aiPrompt,
-  symfony: FRAMEWORK_REGISTRY.symfony.aiPrompt,
-  generic: FRAMEWORK_REGISTRY.generic.aiPrompt,
-};

@@ -77,11 +77,28 @@ export function escapeStringForCodeGen(str: string): string {
 }
 
 /**
- * Escape special characters in selector strings for safe embedding in code
- * @deprecated Use escapeStringForCodeGen instead
+ * Parse retry count from CLI string with bounds clamping
+ * @param value - String from CLI option (e.g., '5')
+ * @param defaultValue - Default if parsing fails (default: 3)
+ * @returns Clamped retry count in range [1, 10]
  */
-export function escapeSelector(selector: string): string {
-  return escapeStringForCodeGen(selector);
+export function parseRetryCount(value?: string, defaultValue = 3): number {
+  if (!value) return defaultValue;
+  const parsed = parseInt(value, 10);
+  if (isNaN(parsed)) return defaultValue;
+  return Math.max(1, Math.min(10, parsed));
+}
+
+/**
+ * Parse JSON safely with prototype pollution prevention
+ * Nullifies prototype on top-level parsed object to prevent __proto__ attacks
+ */
+export function safeJsonParse(content: string): unknown {
+  const parsed = JSON.parse(content);
+  if (parsed && typeof parsed === 'object') {
+    Object.setPrototypeOf(parsed, null);
+  }
+  return parsed;
 }
 
 /**
@@ -161,7 +178,7 @@ export function getFsErrorMessage(error: unknown, filePath: string): string {
     case 'EISDIR':
       return `Expected file but found directory: ${fileName}`;
     case 'ENOTDIR':
-      return `Expected directory but found file: ${filePath}`;
+      return `Expected directory but found file: ${fileName}`;
     case 'EEXIST':
       return `File already exists: ${fileName}`;
     default:
@@ -253,16 +270,16 @@ export interface RetryOptions {
   maxRetries?: number;
   /** Base delay in milliseconds between retries (default: 1000) */
   baseDelay?: number;
-  /** Whether to use exponential backoff (default: true) */
-  exponentialBackoff?: boolean;
-  /** Callback for logging on each retry attempt */
+  /** Whether to increase delay with each attempt (default: true) */
+  progressiveBackoff?: boolean;
+  /** Callback for logging on each retry attempt (not called on final failure) */
   onRetry?: (attempt: number, maxRetries: number, error: unknown) => void;
   /** Callback for logging on final failure */
   onFinalFailure?: (error: unknown) => void;
 }
 
 /**
- * Generic retry utility with exponential backoff
+ * Generic retry utility with progressive backoff (baseDelay * attempt)
  * Executes an async operation with automatic retries on failure
  *
  * @param operation - Async function that may fail and need retrying
@@ -276,7 +293,7 @@ export async function withRetry<T>(
   const {
     maxRetries = 3,
     baseDelay = 1000,
-    exponentialBackoff = true,
+    progressiveBackoff = true,
     onRetry,
     onFinalFailure,
   } = options;
@@ -287,31 +304,21 @@ export async function withRetry<T>(
       if (result !== null) {
         return result;
       }
-      // Result was null but no error — treat as a soft failure with delay
-      if (onRetry) {
-        onRetry(attempt, maxRetries, new Error('Operation returned null'));
-      }
+      // Result was null but no error — treat as a soft failure
+      const nullError = new Error('Operation returned null');
       if (attempt === maxRetries) {
-        if (onFinalFailure) {
-          onFinalFailure(new Error('Operation returned null'));
-        }
+        if (onFinalFailure) onFinalFailure(nullError);
         return null;
       }
-      const nullDelay = exponentialBackoff ? baseDelay * attempt : baseDelay;
-      await sleep(nullDelay);
-      continue;
+      if (onRetry) onRetry(attempt, maxRetries, nullError);
+      await sleep(progressiveBackoff ? baseDelay * attempt : baseDelay);
     } catch (error) {
-      if (onRetry) {
-        onRetry(attempt, maxRetries, error);
-      }
       if (attempt === maxRetries) {
-        if (onFinalFailure) {
-          onFinalFailure(error);
-        }
+        if (onFinalFailure) onFinalFailure(error);
         return null;
       }
-      const delay = exponentialBackoff ? baseDelay * attempt : baseDelay;
-      await sleep(delay);
+      if (onRetry) onRetry(attempt, maxRetries, error);
+      await sleep(progressiveBackoff ? baseDelay * attempt : baseDelay);
     }
   }
 
@@ -421,10 +428,3 @@ export async function runCleanupHandlers(): Promise<void> {
   }
 }
 
-/**
- * Clear all cleanup handlers - used after successful command completion
- * Prevents handler accumulation in workflows that run multiple commands
- */
-export function clearCleanupHandlers(): void {
-  cleanupHandlers.length = 0;
-}

@@ -16,7 +16,7 @@ export {
 export type { Framework, FrameworkConfig } from './frameworks.js';
 
 // Export constants
-export { ERRORS, SUCCESS, FILES, TIMEOUTS, SELECTORS, MESSAGES, PHASES } from './constants.js';
+export { ERRORS, SUCCESS, FILES, TIMEOUTS, AI_CONFIG, SELECTORS, MESSAGES, PHASES } from './constants.js';
 
 // Export types
 export type * from './types.js';
