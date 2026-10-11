@@ -1,7 +1,7 @@
 version: 2
 updates:
-  # npm dependencies
-  - package-ecosystem: "npm"
+  # Dependencies (the lock file is bun.lock, which is what CI installs from)
+  - package-ecosystem: "bun"
     directory: "/"
     schedule:
       interval: "weekly"
