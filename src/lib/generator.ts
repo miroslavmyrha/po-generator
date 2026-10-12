@@ -13,6 +13,7 @@ interface ModalElementInfo {
   selector: string;
   action: string;
   description: string;
+  locator?: ElementInfo['locator'];
 }
 
 /**
@@ -84,14 +85,101 @@ function sanitizeClassName(name: string): string {
   return sanitized;
 }
 
-function buildPageObjectCode(pageData: PageData, className: string, typescript: boolean): string {
-  const parts: string[] = [];
+/** Members every Page Object has; an element or modal must not take one of these names. */
+const RESERVED_NAMES = new Set(['page', 'url', 'goto', 'waitForLoad', 'constructor']);
 
+interface NamedElement {
+  name: string;
+  element: ElementInfo | ModalElementInfo;
+}
+
+interface NamedModal {
+  name: string;
+  elements: NamedElement[];
+  actions: { confirm?: string; cancel?: string };
+  /** Only modals the AI analysed get open/close methods */
+  hasMethods: boolean;
+}
+
+/**
+ * Gives every member of the class a name that is a valid identifier and is used only once.
+ * The AI may repeat a name or pick one the class already has; without this the generated
+ * file would declare a member twice or silently overwrite one.
+ */
+function uniqueName(raw: string, taken: Set<string>, fallback: string): string {
+  const base = sanitizeJsIdentifier(raw) || fallback;
+  let name = base;
+  for (let n = 2; taken.has(name) || RESERVED_NAMES.has(name); n++) {
+    name = `${base}${n}`;
+  }
+  taken.add(name);
+  return name;
+}
+
+function nameMembers(pageData: PageData): { elements: NamedElement[]; modals: NamedModal[] } {
+  const taken = new Set<string>();
+  const elements = (pageData.elements ?? []).map((element) => ({ name: uniqueName(element.name, taken, 'element'), element }));
+
+  const modals: NamedModal[] = [];
+  for (const modal of pageData.modals ?? []) {
+    // a modal the AI only guessed at (no name, nothing inside) gives the class nothing to hold
+    if (!modal.modalName && (!modal.elements || modal.elements.length === 0)) continue;
+    // a modal known only by the element that opens it is named after that element
+    const raw = modal.modalName || (modal.triggerElement ? `${modal.triggerElement}Modal` : 'modal');
+    const inside = new Set<string>(['container', 'confirm', 'cancel']);
+    modals.push({
+      name: uniqueName(raw, taken, 'modal'),
+      elements: (modal.elements ?? []).map((element) => ({ name: uniqueName(element.name, inside, 'element'), element })),
+      actions: modal.actions ?? {},
+      hasMethods: Boolean(modal.modalName),
+    });
+  }
+  return { elements, modals };
+}
+
+const quote = (value: string): string => `'${escapeStringForCodeGen(value)}'`;
+
+/**
+ * The Playwright expression that finds an element.
+ * A locator by role, label, placeholder, test id or text is what Playwright recommends and what
+ * survives a redesign; the CSS selector is the fallback when the AI gave nothing better.
+ */
+export function locatorCode(element: ElementInfo | ModalElementInfo, scope = 'page'): string | null {
+  const locator = 'locator' in element ? element.locator : undefined;
+  if (!locator) return null;
+
+  switch (locator.by) {
+    case 'role': {
+      const options = locator.name ? `, { name: ${quote(locator.name)}${locator.exact ? ', exact: true' : ''} }` : '';
+      return `${scope}.getByRole('${locator.role}'${options})`;
+    }
+    case 'label':
+      return `${scope}.getByLabel(${quote(locator.text)})`;
+    case 'placeholder':
+      return `${scope}.getByPlaceholder(${quote(locator.text)})`;
+    case 'testId':
+      return `${scope}.getByTestId(${quote(locator.text)})`;
+    case 'text':
+      return `${scope}.getByText(${quote(locator.text)})`;
+  }
+}
+
+function buildPageObjectCode(pageData: PageData, className: string, typescript: boolean): string {
+  const members = nameMembers(pageData);
+  const fills = members.elements.filter(({ element }) => element.action === 'fill');
+  const selects = members.elements.filter(({ element }) => element.action === 'select');
+
+  const parts: string[] = [];
   parts.push(generateImports(typescript));
+  parts.push(generateHelpers(typescript, fills.length > 0, selects.length > 0));
   parts.push(generateClassHeader(pageData, className));
-  parts.push(generateTypeDeclarations(typescript));
-  parts.push(generateConstructor(pageData, typescript));
-  parts.push(generateMethods(pageData));
+  parts.push(generateTypeDeclarations(members, typescript));
+  parts.push(generateConstructor(pageData, members, typescript));
+  parts.push(generateNavigationMethods());
+  parts.push(generateFillMethods(fills, typescript));
+  parts.push(generateSelectMethods(selects, typescript));
+  parts.push(generateClickMethods(members.elements));
+  parts.push(generateModalMethods(members.modals));
   parts.push('}\n');
 
   return parts.join('');
@@ -99,9 +187,46 @@ function buildPageObjectCode(pageData: PageData, className: string, typescript: 
 
 function generateImports(typescript: boolean): string {
   if (typescript) {
-    return `import { Page, Locator } from '@playwright/test';\n\n`;
+    return `import type { Page, Locator } from '@playwright/test';\n\n`;
   }
   return '';
+}
+
+/**
+ * Functions shared by the methods of the class, written into the file only when used.
+ * They look at the page when the test runs, so the same Page Object works whether the
+ * locator found the form control itself or the component wrapped around it.
+ */
+function generateHelpers(typescript: boolean, fill: boolean, select: boolean): string {
+  const locator = typescript ? ': Locator' : '';
+  const page = typescript ? ': Page' : '';
+  const text = typescript ? ': string' : '';
+  let code = '';
+
+  if (fill) {
+    code += `/** The control to type into: the element itself, or the input inside a wrapper component. */
+async function fieldOf(locator${locator})${typescript ? ': Promise<Locator>' : ''} {
+  const inner = locator.locator('input, textarea');
+  return (await inner.count()) > 0 ? inner.first() : locator;
+}
+
+`;
+  }
+  if (select) {
+    code += `/** Picks an option of a native select, or of a dropdown a component builds in its place. */
+async function chooseOption(page${page}, locator${locator}, option${text})${typescript ? ': Promise<void>' : ''} {
+  if ((await locator.evaluate((element) => element.tagName)) === 'SELECT') {
+    await locator.selectOption({ label: option });
+    return;
+  }
+  const trigger = locator.locator('${SELECTORS.FIELD_TRIGGER}');
+  await ((await trigger.count()) > 0 ? trigger.first() : locator).click();
+  await page.getByRole('option', { name: option }).or(page.locator('${SELECTORS.DROPDOWN_ITEM}').filter({ hasText: option })).first().click();
+}
+
+`;
+  }
+  return code;
 }
 
 function generateClassHeader(pageData: PageData, className: string): string {
@@ -115,14 +240,24 @@ export class ${className} {
 `;
 }
 
-function generateTypeDeclarations(typescript: boolean): string {
-  if (typescript) {
-    return `  page: Page;\n  url: string;\n\n`;
+/** TypeScript needs every member declared; plain JavaScript gets them from the constructor. */
+function generateTypeDeclarations(members: { elements: NamedElement[]; modals: NamedModal[] }, typescript: boolean): string {
+  if (!typescript) return '';
+
+  const lines = ['  readonly page: Page;', '  readonly url: string;'];
+  for (const { name } of members.elements) {
+    lines.push(`  readonly ${name}: Locator;`);
   }
-  return '';
+  for (const modal of members.modals) {
+    const fields = ['container: Locator', ...modal.elements.map(({ name }) => `${name}: Locator`)];
+    if (modal.actions.confirm) fields.push('confirm: Locator');
+    if (modal.actions.cancel) fields.push('cancel: Locator');
+    lines.push(`  readonly ${modal.name}: { ${fields.join('; ')} };`);
+  }
+  return lines.join('\n') + '\n\n';
 }
 
-function generateConstructor(pageData: PageData, typescript: boolean): string {
+function generateConstructor(pageData: PageData, members: { elements: NamedElement[]; modals: NamedModal[] }, typescript: boolean): string {
   const typeAnnotation = typescript ? ': Page' : '';
   const pageType = typescript ? 'Page' : 'import("@playwright/test").Page';
 
@@ -136,30 +271,21 @@ function generateConstructor(pageData: PageData, typescript: boolean): string {
     this.page = page;
     this.url = '${escapedUrl}';\n\n`;
 
-  code += generateElementDeclarations(pageData.elements);
-  code += generateModalDeclarations(pageData.modals);
+  code += generateElementDeclarations(members.elements);
+  code += generateModalDeclarations(members.modals);
   code += `  }\n\n`;
 
   return code;
 }
 
-/**
- * Sanitize element name for safe use in generated code
- * Defense-in-depth: even though schema validates, we sanitize at point of use
- */
-function safeElementName(name: string): string {
-  return sanitizeJsIdentifier(name);
-}
-
-function generateElementDeclarations(elements: ElementInfo[]): string {
-  if (!elements || elements.length === 0) return '';
+function generateElementDeclarations(elements: NamedElement[]): string {
+  if (elements.length === 0) return '';
 
   // Use array accumulation instead of string += for performance
   const lines: string[] = ['    // Elements'];
-  for (const el of elements) {
-    const safeName = safeElementName(el.name);
-    lines.push(`    /** ${escapeJsDocComment(el.description)} */`);
-    lines.push(`    this.${safeName} = page.locator('${escapeStringForCodeGen(el.selector)}');`);
+  for (const { name, element } of elements) {
+    lines.push(`    /** ${escapeJsDocComment(element.description)} */`);
+    lines.push(`    this.${name} = ${locatorCode(element) ?? `page.locator(${quote(element.selector)})`};`);
     lines.push('');
   }
   return lines.join('\n');
@@ -168,57 +294,34 @@ function generateElementDeclarations(elements: ElementInfo[]): string {
 // Pre-compute modal content selectors for performance
 const MODAL_CONTENT_PARTS = SELECTORS.MODAL_CONTENT.split(', ');
 
-function generateModalDeclarations(modals: ModalData[]): string {
-  if (!modals || modals.length === 0) return '';
-
+function generateModalDeclarations(modals: NamedModal[]): string {
   // Use array accumulation instead of string += for performance
   const lines: string[] = [];
 
   for (const modal of modals) {
-    if (modal.elements && modal.elements.length > 0) {
-      // Sanitize modal name to prevent code injection
-      const rawModalName = modal.modalName || modal.triggerElement || 'modal';
-      const modalName = sanitizeJsIdentifier(rawModalName);
-      lines.push(`    // Modal: ${modalName}`);
-      lines.push(`    this.${modalName} = {`);
-      lines.push(`      container: page.locator('${SELECTORS.MODAL}'),`);
+    lines.push(`    // Modal: ${modal.name}`);
+    lines.push(`    this.${modal.name} = {`);
+    lines.push(`      container: page.locator('${SELECTORS.MODAL}'),`);
 
-      for (const el of modal.elements) {
-        const safeName = safeElementName(el.name);
-        const selector = escapeStringForCodeGen(el.selector);
-        lines.push(`      /** ${escapeJsDocComment(el.description)} */`);
-        // Use pre-computed MODAL_CONTENT_PARTS for performance
-        const fullSelector = MODAL_CONTENT_PARTS.map(m => `${m} ${selector}`).join(', ');
-        lines.push(`      ${safeName}: page.locator('${fullSelector}'),`);
-      }
-
-      if (modal.actions) {
-        if (modal.actions.confirm) {
-          lines.push(`      confirm: page.locator('${escapeStringForCodeGen(modal.actions.confirm)}'),`);
-        }
-        if (modal.actions.cancel) {
-          lines.push(`      cancel: page.locator('${escapeStringForCodeGen(modal.actions.cancel)}'),`);
-        }
-      }
-
-      lines.push('    };');
-      lines.push('');
+    for (const { name, element } of modal.elements) {
+      lines.push(`      /** ${escapeJsDocComment(element.description)} */`);
+      // a recommended locator is looked up inside the modal; a CSS selector is prefixed with it
+      const selector = escapeStringForCodeGen(element.selector);
+      const css = `page.locator('${MODAL_CONTENT_PARTS.map((part) => `${part} ${selector}`).join(', ')}')`;
+      lines.push(`      ${name}: ${locatorCode(element, `page.locator('${SELECTORS.MODAL}')`) ?? css},`);
     }
+    if (modal.actions.confirm) {
+      lines.push(`      confirm: page.locator(${quote(modal.actions.confirm)}),`);
+    }
+    if (modal.actions.cancel) {
+      lines.push(`      cancel: page.locator(${quote(modal.actions.cancel)}),`);
+    }
+
+    lines.push('    };');
+    lines.push('');
   }
 
   return lines.join('\n');
-}
-
-function generateMethods(pageData: PageData): string {
-  const parts: string[] = [];
-
-  parts.push(generateNavigationMethods());
-  parts.push(generateFillMethods(pageData.elements));
-  parts.push(generateSelectMethods(pageData.elements));
-  parts.push(generateClickMethods(pageData.elements));
-  parts.push(generateModalMethods(pageData.modals));
-
-  return parts.join('');
 }
 
 function generateNavigationMethods(): string {
@@ -240,95 +343,80 @@ function generateNavigationMethods(): string {
 `;
 }
 
-function generateFillMethods(elements: ElementInfo[]): string {
-  if (!elements) return '';
-
-  const fillElements = elements.filter((e) => e.action === 'fill');
-  if (fillElements.length === 0) return '';
+function generateFillMethods(elements: NamedElement[], typescript: boolean): string {
+  if (elements.length === 0) return '';
+  const text = typescript ? ': string' : '';
 
   // Use array accumulation for performance
-  const methods = fillElements.map((el) => {
-    const safeName = safeElementName(el.name);
+  const methods = elements.map(({ name, element }) => {
     return `  /**
-   * Fill ${escapeJsDocComment(el.description)}
+   * Fill ${escapeJsDocComment(element.description)}
    * @param {string} value
    */
-  async fill${capitalize(safeName)}(value: string) {
-    await this.${safeName}.locator('input, textarea').fill(value);
+  async fill${capitalize(name)}(value${text}) {
+    await (await fieldOf(this.${name})).fill(value);
   }`;
   });
 
   return methods.join('\n\n') + '\n\n';
 }
 
-function generateSelectMethods(elements: ElementInfo[]): string {
-  if (!elements) return '';
-
-  const selectElements = elements.filter((e) => e.action === 'select');
-  if (selectElements.length === 0) return '';
+function generateSelectMethods(elements: NamedElement[], typescript: boolean): string {
+  if (elements.length === 0) return '';
+  const text = typescript ? ': string' : '';
 
   // Use array accumulation for performance
-  const methods = selectElements.map((el) => {
-    const safeName = safeElementName(el.name);
+  const methods = elements.map(({ name, element }) => {
     return `  /**
-   * Select value in ${escapeJsDocComment(el.description)}
+   * Select value in ${escapeJsDocComment(element.description)}
    * @param {string} option
    */
-  async select${capitalize(safeName)}(option: string) {
-    await this.${safeName}.locator('${SELECTORS.FIELD_TRIGGER}').click();
-    await this.page.locator('${SELECTORS.DROPDOWN_ITEM}').filter({ hasText: option }).click();
+  async select${capitalize(name)}(option${text}) {
+    await chooseOption(this.page, this.${name}, option);
   }`;
   });
 
   return methods.join('\n\n') + '\n\n';
 }
 
-function generateClickMethods(elements: ElementInfo[]): string {
-  if (!elements) return '';
-
-  const clickElements = elements.filter((e) => e.action === 'click' && e.importance === 'high');
+function generateClickMethods(elements: NamedElement[]): string {
+  const clickElements = elements.filter(({ element }) => element.action === 'click' && 'importance' in element && element.importance === 'high');
   if (clickElements.length === 0) return '';
 
   // Use array accumulation for performance
-  const methods = clickElements.map((el) => {
-    const safeName = safeElementName(el.name);
+  const methods = clickElements.map(({ name, element }) => {
     return `  /**
-   * Click ${escapeJsDocComment(el.description)}
+   * Click ${escapeJsDocComment(element.description)}
    */
-  async click${capitalize(safeName)}() {
-    await this.${safeName}.click();
+  async click${capitalize(name)}() {
+    await this.${name}.click();
   }`;
   });
 
   return methods.join('\n\n') + '\n\n';
 }
 
-function generateModalMethods(modals: ModalData[]): string {
-  if (!modals) return '';
-
+function generateModalMethods(modals: NamedModal[]): string {
   let code = '';
 
   for (const modal of modals) {
-    if (modal.modalName) {
-      // Sanitize modal name to prevent code injection
-      const modalName = sanitizeJsIdentifier(modal.modalName);
-      code += `  /**
-   * Open modal ${modalName}
+    if (!modal.hasMethods) continue;
+    code += `  /**
+   * Open modal ${modal.name}
    */
-  async open${capitalize(modalName)}() {
-    await this.${modalName}.container.waitFor();
+  async open${capitalize(modal.name)}() {
+    await this.${modal.name}.container.waitFor();
   }
 
   /**
-   * Close modal ${modalName}
+   * Close modal ${modal.name}
    */
-  async close${capitalize(modalName)}() {
+  async close${capitalize(modal.name)}() {
     await this.page.keyboard.press('Escape');
-    await this.${modalName}.container.waitFor({ state: 'hidden' });
+    await this.${modal.name}.container.waitFor({ state: 'hidden' });
   }
 
 `;
-    }
   }
 
   return code;

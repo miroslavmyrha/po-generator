@@ -178,7 +178,7 @@ describe('Generator Integration', () => {
 
       // Verify structure
       expect(savedCode).toContain('export class LoginPage');
-      expect(savedCode).toContain("import { Page, Locator } from '@playwright/test'");
+      expect(savedCode).toContain("import type { Page, Locator } from '@playwright/test'");
       expect(savedCode).toContain('this.emailInput');
       expect(savedCode).toContain('this.passwordInput');
       expect(savedCode).toContain('this.submitButton');

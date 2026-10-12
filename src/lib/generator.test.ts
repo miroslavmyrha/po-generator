@@ -67,8 +67,8 @@ describe('generatePageObject', () => {
       const result = generatePageObject(minimalPageData, { typescript: true });
 
       expect(result.ext).toBe('ts');
-      expect(result.code).toContain("import { Page, Locator } from '@playwright/test'");
-      expect(result.code).toContain('page: Page;');
+      expect(result.code).toContain("import type { Page, Locator } from '@playwright/test'");
+      expect(result.code).toContain('readonly page: Page;');
       expect(result.code).toContain('constructor(page: Page)');
     });
 
@@ -218,8 +218,9 @@ describe('generatePageObject', () => {
 
       const result = generatePageObject(pageData);
 
-      expect(result.code).toContain('async fillEmailInput(value: string)');
-      expect(result.code).toContain("await this.emailInput.locator('input, textarea').fill(value)");
+      expect(result.code).toContain('async fillEmailInput(value)');
+      expect(result.code).toContain('await (await fieldOf(this.emailInput)).fill(value);');
+      expect(result.code).toContain("locator.locator('input, textarea')");
     });
 
     it('generates select methods for select action', () => {
@@ -240,7 +241,8 @@ describe('generatePageObject', () => {
 
       const result = generatePageObject(pageData);
 
-      expect(result.code).toContain('async selectCountrySelect(option: string)');
+      expect(result.code).toContain('async selectCountrySelect(option)');
+      expect(result.code).toContain('await chooseOption(this.page, this.countrySelect, option);');
       expect(result.code).toContain('.click()');
       expect(result.code).toContain('filter({ hasText: option })');
     });

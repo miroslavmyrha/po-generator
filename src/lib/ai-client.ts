@@ -49,7 +49,17 @@ function createClient(config: Config): OpenAI {
 const BASE_PROMPT = `
 You are an expert in web testing with Playwright. You analyze HTML pages and return structured data for generating Page Objects.
 
-SELECTOR PRIORITY (in order):
+LOCATOR (preferred, how a user finds the element). Give one whenever the HTML allows it:
+1. role and accessible name: {"by": "role", "role": "button", "name": "Save"}
+   (button, link, textbox, checkbox, radio, combobox, heading, tab, dialog, menuitem, switch, option, ...)
+   The name is the visible text, the aria-label, or the text of the label of a form field.
+2. label of a form field: {"by": "label", "text": "E-mail"}
+3. placeholder: {"by": "placeholder", "text": "Search"}
+4. test id (data-testid): {"by": "testId", "text": "submit-button"}
+5. visible text of a non-interactive element: {"by": "text", "text": "No results"}
+Leave "locator" out when none of these identifies the element uniquely.
+
+SELECTOR (always required, the fallback), in this order:
 1. data-testid or data-cy attributes (most stable)
 2. Unique ID: #submit-button
 3. aria-label: [aria-label="Close"]
@@ -58,10 +68,9 @@ SELECTOR PRIORITY (in order):
 6. data-* attributes: [data-controller="modal"]
 
 PRINCIPLES:
-- Prefer selectors that survive refactoring
+- Prefer what survives refactoring: roles and visible names over classes and structure
 - Avoid indexes if possible (nth-child is fragile)
-- Use :has-text() for buttons and links
-- For forms use label or placeholder
+- Use :has-text() for buttons and links in the selector
 `;
 
 const OUTPUT_FORMAT = `
@@ -78,6 +87,7 @@ RETURN ONLY VALID JSON (no markdown, no extra text):
     {
       "name": "camelCase variable name",
       "component": "component type (button, input, select, link, stimulus, vue...)",
+      "locator": { "by": "role", "role": "button", "name": "Save" },
       "selector": "playwright selector",
       "action": "click | fill | select | check | toggle | none",
       "description": "what the element does",

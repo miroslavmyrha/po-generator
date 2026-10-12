@@ -22,6 +22,26 @@ const MAX_ARRAY_SIZES = {
   ARGS: 10,           // Max args per step
 } as const;
 
+// ARIA roles a locator may name. A closed list: the role is written into generated code as is.
+const ARIA_ROLES = [
+  'alert', 'article', 'banner', 'button', 'cell', 'checkbox', 'columnheader', 'combobox', 'dialog', 'form', 'grid',
+  'gridcell', 'group', 'heading', 'img', 'link', 'list', 'listbox', 'listitem', 'main', 'menu', 'menuitem',
+  'navigation', 'option', 'progressbar', 'radio', 'region', 'row', 'searchbox', 'separator', 'slider', 'spinbutton',
+  'status', 'switch', 'tab', 'table', 'tabpanel', 'textbox', 'tooltip', 'tree', 'treeitem',
+] as const;
+
+const locatorText = z.string().min(1).max(MAX_LENGTHS.DESCRIPTION, 'Locator text too long');
+
+// How Playwright should find the element, in the form Playwright itself recommends
+// (getByRole and friends). Optional: the CSS selector stays as the fallback.
+export const LocatorSchema = z.discriminatedUnion('by', [
+  z.object({ by: z.literal('role'), role: z.enum(ARIA_ROLES), name: locatorText.optional(), exact: z.boolean().optional() }),
+  z.object({ by: z.literal('label'), text: locatorText }),
+  z.object({ by: z.literal('placeholder'), text: locatorText }),
+  z.object({ by: z.literal('testId'), text: locatorText }),
+  z.object({ by: z.literal('text'), text: locatorText }),
+]);
+
 // Element schema with validated name and length limits
 export const ElementSchema = z.object({
   name: z.string()
@@ -29,6 +49,8 @@ export const ElementSchema = z.object({
     .regex(jsIdentifierPattern, 'Element name must be valid JS identifier'),
   component: z.string().max(MAX_LENGTHS.IDENTIFIER, 'Component name too long'),
   selector: z.string().max(MAX_LENGTHS.SELECTOR, 'Selector too long'),
+  // a locator the model got wrong must not cost the whole page: the selector is used then
+  locator: LocatorSchema.optional().catch(undefined),
   action: z.enum(['click', 'fill', 'select', 'check', 'toggle', 'none']),
   description: z.string().max(MAX_LENGTHS.DESCRIPTION, 'Description too long'),
   importance: z.enum(['high', 'medium', 'low']),
