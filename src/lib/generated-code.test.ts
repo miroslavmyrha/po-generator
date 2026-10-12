@@ -1,6 +1,6 @@
 import path from 'path';
 import ts from 'typescript';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ElementSchema } from '../schemas.js';
 import type { ElementInfo } from '../types.js';
 import { generatePageObject, locatorCode } from './generator.js';
@@ -9,10 +9,15 @@ import { generatePageObject, locatorCode } from './generator.js';
 // compiler, with the real types of Playwright, so a Page Object that would not compile
 // or parse fails here and not in the project of whoever generated it.
 
+// a compile reads the type definitions of TypeScript and Playwright, which takes seconds on a slow machine
+vi.setConfig({ testTimeout: 60_000 });
+
 const ROOT = path.resolve(import.meta.dirname, '../..');
 // the generated file imports '@playwright/test'; this project has 'playwright', which carries the same types
 const STUB = path.join(ROOT, '__generated__/playwright-test.d.ts');
 const STUB_CODE = `declare module '@playwright/test' { export type { Page, Locator } from 'playwright'; }`;
+
+const parsed = new Map<string, ts.SourceFile | undefined>();
 
 function problems(code: string, extension: 'ts' | 'js'): string[] {
   const file = path.join(ROOT, `__generated__/page.${extension}`);
@@ -34,8 +39,12 @@ function problems(code: string, extension: 'ts' | 'js'): string[] {
   const getSourceFile = host.getSourceFile.bind(host);
   host.readFile = (name) => virtual[name] ?? readFile(name);
   host.fileExists = (name) => name in virtual || fileExists(name);
-  host.getSourceFile = (name, languageVersion, ...rest) =>
-    name in virtual ? ts.createSourceFile(name, virtual[name]!, languageVersion, true) : getSourceFile(name, languageVersion, ...rest);
+  host.getSourceFile = (name, languageVersion, ...rest) => {
+    if (name in virtual) return ts.createSourceFile(name, virtual[name]!, languageVersion, true);
+    // the library files are the same for every compile: parsed once, reused
+    if (!parsed.has(name)) parsed.set(name, getSourceFile(name, languageVersion, ...rest));
+    return parsed.get(name);
+  };
 
   const program = ts.createProgram([file, STUB], options, host);
   const source = program.getSourceFile(file)!;
